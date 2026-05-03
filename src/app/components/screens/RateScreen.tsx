@@ -1,0 +1,283 @@
+import { useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { ArrowLeft, Check, Search } from "lucide-react";
+import { Sun, Moon, Coffee, Wine, Star } from "@phosphor-icons/react";
+import { PUBS, SLIDERS, SliderKey, VibeProfile } from "../vibe";
+import { VibeSlider } from "../VibeSlider";
+import { ImageWithFallback } from "../figma/ImageWithFallback";
+
+const VISIT_OPTIONS = [
+  {
+    value: "Weekday afternoon",
+    time: "Afternoon",
+    day: "Weekday",
+    Icon: Sun,
+    color: "#F59E0B",
+    bg: "#FEF3C7",
+    border: "#FDE68A",
+  },
+  {
+    value: "Weekday evening",
+    time: "Evening",
+    day: "Weekday",
+    Icon: Coffee,
+    color: "#8B5CF6",
+    bg: "#EDE9FE",
+    border: "#DDD6FE",
+  },
+  {
+    value: "Weekend afternoon",
+    time: "Afternoon",
+    day: "Weekend",
+    Icon: Star,
+    color: "#10B981",
+    bg: "#D1FAE5",
+    border: "#A7F3D0",
+  },
+  {
+    value: "Weekend evening",
+    time: "Evening",
+    day: "Weekend",
+    Icon: Wine,
+    color: "#EF4444",
+    bg: "#FEE2E2",
+    border: "#FECACA",
+  },
+  {
+    value: "Late night",
+    time: "Late night",
+    day: "",
+    Icon: Moon,
+    color: "#374151",
+    bg: "#F3F4F6",
+    border: "#E5E7EB",
+  },
+];
+
+export function RateScreen() {
+  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const initial = PUBS.find((p) => p.id === id) ?? PUBS[0];
+
+  const [pub, setPub] = useState(initial);
+  const [search, setSearch] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [values, setValues] = useState<VibeProfile>({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
+  const [visit, setVisit] = useState<string>("Weekday evening");
+  const [note, setNote] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  if (submitted) {
+    return (
+      <div className="absolute inset-0 bg-[#fbf8f3] flex flex-col items-center justify-center px-6 text-center">
+        <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+          <Check className="w-8 h-8 text-emerald-600" />
+        </div>
+        <div className="text-gray-900 text-xl">Thanks for rating!</div>
+        <div className="text-[13px] text-gray-600 mt-2 max-w-xs">
+          Your rating for <span className="text-gray-900">{pub.name}</span> just contributed to its community vibe profile.
+        </div>
+        <div className="mt-6 p-4 rounded-2xl bg-white border border-gray-100 w-full max-w-sm">
+          <div className="text-[12px] text-gray-500 mb-2">Your contribution</div>
+          <div className="space-y-1.5">
+            {SLIDERS.map((s) => (
+              <div key={s.key} className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full" style={{ width: `${values[s.key]}%`, background: s.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2 mt-6 w-full max-w-sm">
+          <button onClick={() => navigate(`/detail/${pub.id}`)} className="flex-1 py-3 rounded-2xl bg-white border border-gray-200">
+            View pub
+          </button>
+          <button onClick={() => navigate("/")} className="flex-1 py-3 rounded-2xl bg-gray-900 text-white">
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const matches = PUBS.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="absolute inset-0 bg-[#fbf8f3] flex flex-col">
+      {/* Header */}
+      <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white/70 backdrop-blur">
+        <button
+          onClick={() => navigate(-1 as any)}
+          className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <div className="text-gray-900">Rate this place</div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-5">
+
+        {/* Pub selector */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Pub</div>
+          {!picking ? (
+            <button
+              onClick={() => setPicking(true)}
+              className="w-full rounded-2xl bg-white border border-gray-200 overflow-hidden text-left"
+            >
+              {/* Image above title */}
+              <div className="relative h-32">
+                <ImageWithFallback
+                  src={pub.image}
+                  alt={pub.name}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
+                <div className="absolute bottom-2 right-2 text-[11px] text-white bg-black/30 backdrop-blur-sm px-2.5 py-0.5 rounded-full border border-white/20">
+                  Change
+                </div>
+              </div>
+              <div className="p-3">
+                <div className="text-gray-900">{pub.name}</div>
+                <div className="text-[12px] text-gray-500">{pub.area}, {pub.city}</div>
+              </div>
+            </button>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-200 p-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search the pub"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-gray-50 outline-none text-[13px]"
+                />
+              </div>
+              <div className="mt-2 max-h-48 overflow-y-auto">
+                {matches.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => { setPub(p); setPicking(false); }}
+                    className="w-full text-left p-2 rounded-xl hover:bg-gray-50 text-[13px] flex items-center gap-2"
+                  >
+                    <ImageWithFallback src={p.image} alt={p.name} className="w-9 h-9 rounded-lg object-cover flex-none" />
+                    <div>
+                      <div className="text-gray-900">{p.name}</div>
+                      <div className="text-[11px] text-gray-500">{p.area}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Vibe sliders */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">How did it feel?</div>
+          <div className="space-y-2">
+            {SLIDERS.map((s) => (
+              <VibeSlider
+                key={s.key}
+                def={s}
+                value={values[s.key]}
+                onChange={(v) => setValues({ ...values, [s.key]: v })}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* When did you visit — visual card grid */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">When did you visit?</div>
+          <div className="grid grid-cols-2 gap-2">
+            {VISIT_OPTIONS.slice(0, 4).map((opt) => {
+              const selected = visit === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => setVisit(opt.value)}
+                  className="rounded-2xl p-3 flex flex-col items-start gap-2 border transition-all text-left"
+                  style={
+                    selected
+                      ? { background: opt.bg, borderColor: opt.border, borderWidth: 1.5 }
+                      : { background: "#ffffff", borderColor: "#f3f4f6", borderWidth: 1 }
+                  }
+                >
+                  <opt.Icon
+                    weight="duotone"
+                    size={26}
+                    style={{ color: selected ? opt.color : "#9ca3af" }}
+                  />
+                  <div>
+                    <div
+                      className="text-[13px] leading-tight"
+                      style={{ color: selected ? opt.color : "#111827" }}
+                    >
+                      {opt.time}
+                    </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">{opt.day}</div>
+                  </div>
+                </button>
+              );
+            })}
+            {/* Late night — full width */}
+            {(() => {
+              const opt = VISIT_OPTIONS[4];
+              const selected = visit === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => setVisit(opt.value)}
+                  className="col-span-2 rounded-2xl px-4 py-3 flex items-center gap-3 border transition-all"
+                  style={
+                    selected
+                      ? { background: opt.bg, borderColor: opt.border, borderWidth: 1.5 }
+                      : { background: "#ffffff", borderColor: "#f3f4f6", borderWidth: 1 }
+                  }
+                >
+                  <opt.Icon
+                    weight="duotone"
+                    size={26}
+                    style={{ color: selected ? opt.color : "#9ca3af" }}
+                  />
+                  <div
+                    className="text-[13px]"
+                    style={{ color: selected ? opt.color : "#111827" }}
+                  >
+                    {opt.time}
+                  </div>
+                </button>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Quick note */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[12px] text-gray-500 uppercase tracking-wide">Quick note (optional)</div>
+            <div className="text-[11px] text-gray-400">{note.length}/160</div>
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 160))}
+            placeholder="What stood out?"
+            className="w-full p-3 rounded-2xl bg-white border border-gray-200 text-[13px] outline-none focus:border-gray-300 resize-none h-20"
+          />
+        </div>
+      </div>
+
+      <div className="flex-none p-4 border-t border-gray-100 bg-white/90 backdrop-blur">
+        <button
+          onClick={() => setSubmitted(true)}
+          className="w-full py-3.5 rounded-2xl bg-gray-900 text-white shadow-md"
+        >
+          Submit rating
+        </button>
+      </div>
+    </div>
+  );
+}
