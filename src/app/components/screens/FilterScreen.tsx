@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { X, RotateCcw } from "lucide-react";
 import {
@@ -10,10 +10,14 @@ import {
   MusicNote,
   ArrowRight,
   HandHeart,
+  Plus,
+  X as PhX,
 } from "@phosphor-icons/react";
 import { SLIDERS, PUBS, CITIES, SliderDef, SliderKey } from "../vibe";
 import { VibeSlider } from "../VibeSlider";
 import { useFilters } from "../../context/FilterContext";
+import { CustomPresetModal, getIconComponent } from "../CustomPresetModal";
+import type { CustomPreset } from "../../context/FilterContext";
 
 const PRESET_ITEMS = [
   { key: "talking", label: "Good for talking", icon: <ChatCircle weight="duotone" size={22} /> },
@@ -118,7 +122,14 @@ export function FilterScreen() {
     values, setValues, enabled, setEnabled,
     margin, setMargin, marginEnabled, setMarginEnabled,
     searchRadius, setSearchRadius,
+    customPresets, addCustomPreset, removeCustomPreset,
   } = useFilters();
+
+  const [modalOpen, setModalOpen] = useState(false);
+  // Snapshot captured at the moment the user taps "Create Custom"
+  const [snapValues,  setSnapValues]  = useState(values);
+  const [snapEnabled, setSnapEnabled] = useState(enabled);
+  const [snapMargin,  setSnapMargin]  = useState(margin);
 
   const count = useMemo(() => {
     const effectiveMargin = marginEnabled ? margin : 100;
@@ -144,14 +155,27 @@ export function FilterScreen() {
     if (key === "music")   { setEnabled({ modern: true, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, modern: 60, lively: 75 }); }
   };
 
-  const MARGIN_SLIDER: SliderDef = {
-    key: "modern" as SliderKey,
-    left: "Exact",
-    right: "Flexible",
-    color: "#374151",
-    bg: "bg-gray-50",
-    track: "from-gray-400 to-gray-700",
+  const applyCustomPreset = (p: CustomPreset) => {
+    setValues(p.values);
+    setEnabled(p.enabled);
+    setMargin(p.margin);
+    setMarginEnabled(true);
   };
+
+  const openModal = () => {
+    // Capture current filter state right now
+    setSnapValues({ ...values });
+    setSnapEnabled({ ...enabled });
+    setSnapMargin(margin);
+    setModalOpen(true);
+  };
+
+  const TOLERANCE_OPTIONS = [
+    { label: "Flexible", value: 40 },
+    { label: "Low",      value: 20 },
+    { label: "High",     value: 10 },
+    { label: "Exact",    value: 3  },
+  ];
 
   const RADIUS_SLIDER: SliderDef = {
     key: "touristy" as SliderKey,
@@ -200,20 +224,25 @@ export function FilterScreen() {
 
         {/* 2. Match tolerance */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[12px] text-gray-500 uppercase tracking-wide">Match tolerance</div>
-            <span className={`text-[12px] transition-colors ${marginEnabled ? "text-gray-500" : "text-gray-300"}`}>
-              ±{margin}%
-            </span>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Match tolerance</div>
+          <div className="grid grid-cols-4 gap-2">
+            {TOLERANCE_OPTIONS.map((opt) => {
+              const active = margin === opt.value;
+              return (
+                <button
+                  key={opt.label}
+                  onClick={() => { setMargin(opt.value); setMarginEnabled(true); }}
+                  className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                    active
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
-          <VibeSlider
-            def={MARGIN_SLIDER}
-            value={margin}
-            onChange={(v) => setMargin(v)}
-            enabled={marginEnabled}
-            onToggle={(b) => setMarginEnabled(b)}
-            showToggle
-          />
         </div>
 
         {/* 3. Good for */}
@@ -230,6 +259,41 @@ export function FilterScreen() {
                 <div className="text-[13px] mt-1 text-gray-800">{p.label}</div>
               </button>
             ))}
+
+            {/* Custom presets */}
+            {customPresets.map((cp) => {
+              const Icon = getIconComponent(cp.iconName);
+              return (
+                <div
+                  key={cp.id}
+                  onClick={() => applyCustomPreset(cp)}
+                  className="relative text-left px-3 py-3 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors group cursor-pointer select-none"
+                >
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeCustomPreset(cp.id); }}
+                    className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                  >
+                    <PhX size={10} weight="bold" className="text-gray-500" />
+                  </button>
+                  <div className="text-gray-600">
+                    <Icon weight="duotone" size={22} />
+                  </div>
+                  <div className="text-[13px] mt-1 text-gray-800 pr-4 truncate">{cp.name}</div>
+                </div>
+              );
+            })}
+
+            {/* Create Custom button */}
+            <button
+              onClick={openModal}
+              className="text-left px-3 py-3 rounded-2xl bg-white border-2 border-dashed border-gray-300 hover:border-gray-400 active:bg-gray-50 transition-colors flex flex-col justify-center items-start gap-1"
+            >
+              <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center">
+                <Plus size={16} weight="bold" className="text-gray-500" />
+              </div>
+              <div className="text-[13px] text-gray-500">Create custom</div>
+            </button>
           </div>
         </div>
 
@@ -294,6 +358,15 @@ export function FilterScreen() {
           Show {count} {count === 1 ? "place" : "places"}
         </button>
       </div>
+
+      <CustomPresetModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSave={addCustomPreset}
+        initialValues={snapValues}
+        initialEnabled={snapEnabled}
+        initialMargin={snapMargin}
+      />
     </div>
   );
 }

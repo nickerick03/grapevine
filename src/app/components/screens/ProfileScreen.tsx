@@ -7,6 +7,7 @@ import {
   MapPin,
   PencilSimple,
   Clock,
+  Plus,
 } from "@phosphor-icons/react";
 import { useAuth } from "../../context/AuthContext";
 import { PUBS, SLIDERS } from "../vibe";
@@ -86,6 +87,27 @@ export function ProfileScreen() {
             </div>
           </div>
         </div>
+
+        {/* Add New Place CTA — hidden, kept for future use */}
+        {false && (
+          <div className="px-4 pb-4">
+            <button
+              onClick={() => navigate("/add-place")}
+              className="w-full flex items-center gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-3.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:bg-gray-50 active:scale-[0.98] transition-all"
+            >
+              <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center flex-none">
+                <Plus size={18} weight="bold" className="text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <div className="text-[14px] text-gray-900">Add a new place</div>
+                <div className="text-[11px] text-gray-500 mt-0.5">
+                  Pin it on the map & fill in the details
+                </div>
+              </div>
+              <MapPin size={16} className="text-gray-400" />
+            </button>
+          </div>
+        )}
 
         {/* Saved Places */}
         <div className="px-4 pb-4">

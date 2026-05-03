@@ -11,6 +11,7 @@ import { NearbyScreen } from "./components/screens/NearbyScreen";
 import { SettingsScreen } from "./components/screens/SettingsScreen";
 import { SavedScreen } from "./components/screens/SavedScreen";
 import { AdBlockScreen } from "./components/screens/AdBlockScreen";
+import { AddPlaceScreen } from "./components/screens/AddPlaceScreen";
 
 const router = createBrowserRouter([
   {
@@ -30,6 +31,7 @@ const router = createBrowserRouter([
       { path: "saved", Component: SavedScreen },
       { path: "settings", Component: SettingsScreen },
       { path: "adblock", Component: AdBlockScreen },
+      { path: "add-place", Component: AddPlaceScreen },
     ],
   },
 ]);
