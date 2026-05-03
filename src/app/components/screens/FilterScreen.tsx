@@ -16,6 +16,7 @@ import {
 import { SLIDERS, PUBS, CITIES, SliderDef, SliderKey } from "../vibe";
 import { VibeSlider } from "../VibeSlider";
 import { useFilters } from "../../context/FilterContext";
+import { VENUE_TYPES, PRICE_OPTIONS, type VenueType } from "../../context/FilterContext";
 import { CustomPresetModal, getIconComponent } from "../CustomPresetModal";
 import type { CustomPreset } from "../../context/FilterContext";
 
@@ -122,6 +123,8 @@ export function FilterScreen() {
     values, setValues, enabled, setEnabled,
     margin, setMargin, marginEnabled, setMarginEnabled,
     searchRadius, setSearchRadius,
+    venueTypes, setVenueTypes,
+    price, setPrice,
     customPresets, addCustomPreset, removeCustomPreset,
   } = useFilters();
 
@@ -204,9 +207,34 @@ export function FilterScreen() {
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 pb-32">
 
-        {/* 1. Vibe sliders */}
+        {/* 1. Venue type */}
         <div>
-          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Vibe sliders</div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Venue type</div>
+          <div className="flex gap-2">
+            {VENUE_TYPES.map((vt) => {
+              const active = venueTypes.includes(vt);
+              return (
+                <button
+                  key={vt}
+                  onClick={() =>
+                    setVenueTypes(active ? venueTypes.filter((t) => t !== vt) : [...venueTypes, vt])
+                  }
+                  className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                    active
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                  }`}
+                >
+                  {vt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 2. Trait sliders */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Trait sliders</div>
           <div className="space-y-2">
             {SLIDERS.map((s) => (
               <VibeSlider
@@ -222,7 +250,30 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 2. Match tolerance */}
+        {/* 3. Price */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price</div>
+          <div className="grid grid-cols-4 gap-2">
+            {PRICE_OPTIONS.map((opt) => {
+              const active = price === opt.value;
+              return (
+                <button
+                  key={opt.label}
+                  onClick={() => setPrice(active ? null : opt.value)}
+                  className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                    active
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 4. Match tolerance */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Match tolerance</div>
           <div className="grid grid-cols-4 gap-2">
@@ -245,7 +296,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 3. Good for */}
+        {/* 5. Good for */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Good for…</div>
           <div className="grid grid-cols-2 gap-2">
@@ -297,7 +348,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 4. Find similar */}
+        {/* 6. Find similar */}
         <button
           onClick={() => navigate("/similar")}
           className="w-full py-3 rounded-2xl bg-white border border-gray-200 text-gray-800 text-[13px] flex items-center justify-center gap-2 hover:border-gray-300 transition-colors shadow-sm"
@@ -306,7 +357,7 @@ export function FilterScreen() {
           <ArrowRight size={15} className="text-gray-500" />
         </button>
 
-        {/* 5. Location — moved above range selector */}
+        {/* 7. Location — moved above range selector */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Location</div>
           <div className="grid grid-cols-2 gap-2">
@@ -319,7 +370,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 6. Search area radius */}
+        {/* 8. Search area radius */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[12px] text-gray-500 uppercase tracking-wide">Search radius</div>

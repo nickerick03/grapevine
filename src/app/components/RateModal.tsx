@@ -6,6 +6,7 @@ import { PUBS, SLIDERS, SliderKey, VibeProfile } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { useUI } from "../context/UIContext";
+import { VENUE_TYPES, PRICE_OPTIONS, type VenueType } from "../context/FilterContext";
 
 const VISIT_OPTIONS = [
   { value: "Weekday afternoon", time: "Afternoon", day: "Weekday", Icon: Sun,   color: "#F59E0B", bg: "#FEF3C7", border: "#FDE68A" },
@@ -26,6 +27,8 @@ export function RateModal() {
   const [visit, setVisit] = useState("Weekday evening");
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [venueType, setVenueType] = useState<VenueType | null>(null);
+  const [price, setPrice] = useState<number | null>(null);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -38,6 +41,8 @@ export function RateModal() {
       setVisit("Weekday evening");
       setNote("");
       setSubmitted(false);
+      setVenueType(null);
+      setPrice(null);
     }
   }, [rateOpen, ratePubId]);
 
@@ -180,6 +185,52 @@ export function RateModal() {
                           onChange={(v) => setValues({ ...values, [s.key]: v })}
                         />
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Venue type */}
+                  <div>
+                    <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Venue type</div>
+                    <div className="flex gap-2">
+                      {VENUE_TYPES.map((vt) => {
+                        const active = venueType === vt;
+                        return (
+                          <button
+                            key={vt}
+                            onClick={() => setVenueType(active ? null : vt)}
+                            className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                              active
+                                ? "bg-gray-900 text-white border-gray-900"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                            }`}
+                          >
+                            {vt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Price */}
+                  <div>
+                    <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price</div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {PRICE_OPTIONS.map((opt) => {
+                        const active = price === opt.value;
+                        return (
+                          <button
+                            key={opt.label}
+                            onClick={() => setPrice(active ? null : opt.value)}
+                            className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                              active
+                                ? "bg-gray-900 text-white border-gray-900"
+                                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 

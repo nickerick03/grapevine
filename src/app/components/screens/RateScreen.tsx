@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, Check, Search } from "lucide-react";
 import { Sun, Moon, Coffee, Wine, Star } from "@phosphor-icons/react";
-import { PUBS, SLIDERS, SliderKey, VibeProfile } from "../vibe";
+import { PUBS, SLIDERS, VibeProfile } from "../vibe";
 import { VibeSlider } from "../VibeSlider";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { VENUE_TYPES, PRICE_OPTIONS, type VenueType } from "../../context/FilterContext";
 
 const VISIT_OPTIONS = [
   {
@@ -66,6 +67,8 @@ export function RateScreen() {
   const [visit, setVisit] = useState<string>("Weekday evening");
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [venueType, setVenueType] = useState<VenueType | null>(null);
+  const [price, setPrice] = useState<number | null>(null);
 
   if (submitted) {
     return (
@@ -186,6 +189,52 @@ export function RateScreen() {
                 onChange={(v) => setValues({ ...values, [s.key]: v })}
               />
             ))}
+          </div>
+        </div>
+
+        {/* Venue type */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Venue type</div>
+          <div className="flex gap-2">
+            {VENUE_TYPES.map((vt) => {
+              const active = venueType === vt;
+              return (
+                <button
+                  key={vt}
+                  onClick={() => setVenueType(active ? null : vt)}
+                  className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                    active
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                  }`}
+                >
+                  {vt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Price */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price</div>
+          <div className="grid grid-cols-4 gap-2">
+            {PRICE_OPTIONS.map((opt) => {
+              const active = price === opt.value;
+              return (
+                <button
+                  key={opt.label}
+                  onClick={() => setPrice(active ? null : opt.value)}
+                  className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                    active
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

@@ -8,7 +8,19 @@ export interface CustomPreset {
   values: VibeProfile;
   enabled: Record<SliderKey, boolean>;
   margin: number;
+  venueTypes: string[];
+  price: number | null;
 }
+
+export type VenueType = "Bar" | "Cafe" | "Restaurant";
+export const VENUE_TYPES: VenueType[] = ["Bar", "Cafe", "Restaurant"];
+
+export const PRICE_OPTIONS = [
+  { label: "$",    value: 1 },
+  { label: "$$",   value: 2 },
+  { label: "$$$",  value: 3 },
+  { label: "$$$$", value: 4 },
+];
 
 interface FilterContextType {
   values: VibeProfile;
@@ -21,6 +33,10 @@ interface FilterContextType {
   setMarginEnabled: (b: boolean) => void;
   searchRadius: number;
   setSearchRadius: (r: number) => void;
+  venueTypes: VenueType[];
+  setVenueTypes: (v: VenueType[]) => void;
+  price: number | null;
+  setPrice: (p: number | null) => void;
   customPresets: CustomPreset[];
   addCustomPreset: (p: CustomPreset) => void;
   removeCustomPreset: (id: string) => void;
@@ -40,6 +56,10 @@ const FilterContext = createContext<FilterContextType>({
   setMarginEnabled: () => {},
   searchRadius: 25,
   setSearchRadius: () => {},
+  venueTypes: [],
+  setVenueTypes: () => {},
+  price: null,
+  setPrice: () => {},
   customPresets: [],
   addCustomPreset: () => {},
   removeCustomPreset: () => {},
@@ -51,6 +71,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   const [margin, setMargin] = useState(20);
   const [marginEnabled, setMarginEnabled] = useState(true);
   const [searchRadius, setSearchRadius] = useState(25);
+  const [venueTypes, setVenueTypes] = useState<VenueType[]>([]);
+  const [price, setPrice] = useState<number | null>(null);
   const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
 
   const addCustomPreset = (p: CustomPreset) =>
@@ -64,6 +86,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       values, setValues, enabled, setEnabled,
       margin, setMargin, marginEnabled, setMarginEnabled,
       searchRadius, setSearchRadius,
+      venueTypes, setVenueTypes,
+      price, setPrice,
       customPresets, addCustomPreset, removeCustomPreset,
     }}>
       {children}

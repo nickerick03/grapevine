@@ -65,6 +65,16 @@ const TOLERANCE_OPTIONS = [
   { label: "Exact",    value: 3  },
 ];
 
+const VENUE_TYPES = ["Bar", "Cafe", "Restaurant"] as const;
+type VenueType = typeof VENUE_TYPES[number];
+
+const PRICE_OPTIONS = [
+  { label: "$",    value: 1 },
+  { label: "$$",   value: 2 },
+  { label: "$$$",  value: 3 },
+  { label: "$$$$", value: 4 },
+];
+
 // ── Props ──────────────────────────────────────────────────────────────────
 interface Props {
   open: boolean;
@@ -91,6 +101,8 @@ export function CustomPresetModal({
   const [enabled,     setEnabled]     = useState<Record<SliderKey, boolean>>(initialEnabled);
   const [margin,      setMargin]      = useState(initialMargin);
   const [nameError,   setNameError]   = useState(false);
+  const [venueTypes,  setVenueTypes]  = useState<VenueType[]>([]);
+  const [price,       setPrice]       = useState<number | null>(null);
 
   // Re-seed sliders every time the modal opens with the live filter state
   useEffect(() => {
@@ -101,9 +113,16 @@ export function CustomPresetModal({
       setEnabled(initialEnabled);
       setMargin(initialMargin);
       setNameError(false);
+      setVenueTypes([]);
+      setPrice(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const toggleVenueType = (vt: VenueType) =>
+    setVenueTypes((prev) =>
+      prev.includes(vt) ? prev.filter((t) => t !== vt) : [...prev, vt]
+    );
 
   const handleSave = () => {
     if (!name.trim()) { setNameError(true); return; }
@@ -114,6 +133,8 @@ export function CustomPresetModal({
       values,
       enabled,
       margin,
+      venueTypes,
+      price,
     });
     onClose();
   };
@@ -177,10 +198,32 @@ export function CustomPresetModal({
                 )}
               </div>
 
-              {/* 2. Vibe profile (filters) */}
+              {/* 2. Trait sliders — venue type toggles above, price below */}
               <div>
-                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Vibe profile</div>
-                <div className="space-y-2">
+                {/* Venue type */}
+                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Venue type</div>
+                <div className="flex gap-2 mb-4">
+                  {VENUE_TYPES.map((vt) => {
+                    const active = venueTypes.includes(vt);
+                    return (
+                      <button
+                        key={vt}
+                        onClick={() => toggleVenueType(vt)}
+                        className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                          active
+                            ? "bg-gray-900 text-white border-gray-900"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                        }`}
+                      >
+                        {vt}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Trait sliders */}
+                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Trait sliders</div>
+                <div className="space-y-2 mb-4">
                   {SLIDERS.map((s) => (
                     <VibeSlider
                       key={s.key}
@@ -192,6 +235,27 @@ export function CustomPresetModal({
                       showToggle
                     />
                   ))}
+                </div>
+
+                {/* Price */}
+                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {PRICE_OPTIONS.map((opt) => {
+                    const active = price === opt.value;
+                    return (
+                      <button
+                        key={opt.label}
+                        onClick={() => setPrice(active ? null : opt.value)}
+                        className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                          active
+                            ? "bg-gray-900 text-white border-gray-900"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -245,7 +309,7 @@ export function CustomPresetModal({
                 </div>
               </div>
 
-              {/* Bottom spacer so content clears the save button */}
+              {/* Bottom spacer */}
               <div className="h-2" />
             </div>
 
