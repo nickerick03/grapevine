@@ -22,6 +22,7 @@ import {
   Sparkle,
   Crown,
   DiceSix,
+  ForkKnife,
 } from "@phosphor-icons/react";
 import { SLIDERS, VibeProfile, SliderKey } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
@@ -49,6 +50,7 @@ export const ICON_OPTIONS = [
   { name: "Sparkle",      Icon: Sparkle },
   { name: "Crown",        Icon: Crown },
   { name: "DiceSix",      Icon: DiceSix },
+  { name: "ForkKnife",    Icon: ForkKnife },
 ] as const;
 
 export type IconName = typeof ICON_OPTIONS[number]["name"];
@@ -67,6 +69,12 @@ const TOLERANCE_OPTIONS = [
 
 const VENUE_TYPES = ["Bar", "Cafe", "Restaurant"] as const;
 type VenueType = typeof VENUE_TYPES[number];
+
+const VENUE_TYPE_ICONS: Record<VenueType, React.ReactElement> = {
+  Bar:        <BeerStein weight="duotone" size={17} />,
+  Cafe:       <Coffee    weight="duotone" size={17} />,
+  Restaurant: <ForkKnife weight="duotone" size={17} />,
+};
 
 const PRICE_OPTIONS = [
   { label: "$",    value: 1 },
@@ -209,12 +217,15 @@ export function CustomPresetModal({
                       <button
                         key={vt}
                         onClick={() => toggleVenueType(vt)}
-                        className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                        className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors flex items-center justify-center gap-1.5 ${
                           active
                             ? "bg-gray-900 text-white border-gray-900"
                             : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
                         }`}
                       >
+                        <span className={active ? "text-white" : "text-gray-400"}>
+                          {VENUE_TYPE_ICONS[vt]}
+                        </span>
                         {vt}
                       </button>
                     );

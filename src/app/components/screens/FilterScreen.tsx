@@ -1,24 +1,23 @@
-import { useMemo, useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router";
-import { X, RotateCcw } from "lucide-react";
 import {
-  ChatCircle,
-  Coins,
-  Heart,
-  Diamond,
-  Lightning,
-  MusicNote,
-  ArrowRight,
-  HandHeart,
-  Plus,
-  X as PhX,
+  BeerStein, Coffee, ForkKnife,
+  ChatCircle, Coins, Heart, Diamond, Lightning, MusicNote,
+  X, ArrowCounterClockwise, Plus, ArrowRight, HandHeart,
 } from "@phosphor-icons/react";
-import { SLIDERS, PUBS, CITIES, SliderDef, SliderKey } from "../vibe";
+import { PUBS, SLIDERS, type SliderKey, type SliderDef } from "../vibe";
 import { VibeSlider } from "../VibeSlider";
-import { useFilters } from "../../context/FilterContext";
-import { VENUE_TYPES, PRICE_OPTIONS, type VenueType } from "../../context/FilterContext";
+import { VENUE_TYPES, PRICE_OPTIONS, type VenueType, useFilters, type CustomPreset } from "../../context/FilterContext";
 import { CustomPresetModal, getIconComponent } from "../CustomPresetModal";
-import type { CustomPreset } from "../../context/FilterContext";
+
+const CITIES = ["Budapest", "London", "Amsterdam", "Berlin", "Prague", "Vienna"];
+
+function VenueTypeIcon({ type }: { type: VenueType }) {
+  const props = { weight: "duotone" as const, size: 17 };
+  if (type === "Bar") return <BeerStein {...props} />;
+  if (type === "Cafe") return <Coffee {...props} />;
+  return <ForkKnife {...props} />;
+}
 
 const PRESET_ITEMS = [
   { key: "talking", label: "Good for talking", icon: <ChatCircle weight="duotone" size={22} /> },
@@ -27,6 +26,9 @@ const PRESET_ITEMS = [
   { key: "hidden",  label: "Hidden gem",       icon: <Diamond weight="duotone" size={22} /> },
   { key: "party",   label: "Party start",      icon: <Lightning weight="duotone" size={22} /> },
   { key: "music",   label: "Live music",       icon: <MusicNote weight="duotone" size={22} /> },
+  { key: "beer",    label: "Beer",             icon: <BeerStein weight="duotone" size={22} /> },
+  { key: "coffee",  label: "Coffee",           icon: <Coffee weight="duotone" size={22} /> },
+  { key: "food",    label: "Food",             icon: <ForkKnife weight="duotone" size={22} /> },
 ];
 
 // Convert 0–100 slider value → km label (∞ at 100)
@@ -156,6 +158,9 @@ export function FilterScreen() {
     if (key === "hidden")  { setEnabled({ modern: false, lively: false, premium: false, touristy: true, spacious: false }); setValues({ ...values, touristy: 15 }); }
     if (key === "party")   { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: true }); setValues({ ...values, lively: 90, spacious: 75 }); }
     if (key === "music")   { setEnabled({ modern: true, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, modern: 60, lively: 75 }); }
+    if (key === "beer")    { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 70 }); }
+    if (key === "coffee")  { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 60 }); }
+    if (key === "food")    { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 50 }); }
   };
 
   const applyCustomPreset = (p: CustomPreset) => {
@@ -194,7 +199,7 @@ export function FilterScreen() {
       {/* Header */}
       <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white/70 backdrop-blur">
         <button onClick={reset} className="text-[13px] text-gray-600 flex items-center gap-1">
-          <RotateCcw className="w-3.5 h-3.5" /> Reset
+          <ArrowCounterClockwise className="w-3.5 h-3.5" /> Reset
         </button>
         <div className="text-gray-900">Filters</div>
         <button
@@ -219,12 +224,15 @@ export function FilterScreen() {
                   onClick={() =>
                     setVenueTypes(active ? venueTypes.filter((t) => t !== vt) : [...venueTypes, vt])
                   }
-                  className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors flex items-center justify-center gap-1.5 ${
                     active
                       ? "bg-gray-900 text-white border-gray-900"
                       : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
                   }`}
                 >
+                  <span className={active ? "text-white" : "text-gray-400"}>
+                    <VenueTypeIcon type={vt} />
+                  </span>
                   {vt}
                 </button>
               );
@@ -325,7 +333,7 @@ export function FilterScreen() {
                     onClick={(e) => { e.stopPropagation(); removeCustomPreset(cp.id); }}
                     className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                   >
-                    <PhX size={10} weight="bold" className="text-gray-500" />
+                    <X size={10} weight="bold" className="text-gray-500" />
                   </button>
                   <div className="text-gray-600">
                     <Icon weight="duotone" size={22} />
