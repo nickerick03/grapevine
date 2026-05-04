@@ -93,7 +93,10 @@ export function ProfileScreen() {
               <div className="flex-1 min-w-0">
                 <div className="text-gray-900 text-[17px]">{user.name}</div>
                 <div className="text-[12px] text-gray-500 mt-0.5 truncate">{user.email}</div>
-                <button className="mt-2 flex items-center gap-1 text-[12px] text-gray-600 px-3 py-1 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
+                <button
+                  onClick={() => navigate("/edit-profile")}
+                  className="mt-2 flex items-center gap-1 text-[12px] text-gray-600 px-3 py-1 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
                   <PencilSimple size={12} /> Edit profile
                 </button>
               </div>

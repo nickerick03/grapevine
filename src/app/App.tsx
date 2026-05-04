@@ -14,6 +14,7 @@ import { AdBlockScreen } from "./components/screens/AdBlockScreen";
 import { AddPlaceScreen } from "./components/screens/AddPlaceScreen";
 import { LeaderboardScreen } from "./components/screens/LeaderboardScreen";
 import { PhotoEditScreen } from "./components/screens/PhotoEditScreen";
+import { EditProfileScreen } from "./components/screens/EditProfileScreen";
 
 const router = createBrowserRouter([
   {
@@ -36,6 +37,7 @@ const router = createBrowserRouter([
       { path: "add-place", Component: AddPlaceScreen },
       { path: "leaderboard", Component: LeaderboardScreen },
       { path: "photo-edit", Component: PhotoEditScreen },
+      { path: "edit-profile", Component: EditProfileScreen },
     ],
   },
 ]);

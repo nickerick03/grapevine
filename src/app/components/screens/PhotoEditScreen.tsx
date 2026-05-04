@@ -31,10 +31,10 @@ const FILTER_PRESETS: FilterPreset[] = [
 
 /* ─── Gradient palettes ──────────────────────────────────── */
 const GRADIENT_PALETTES = [
-  { from: "#F59E0B", to: "#EF4444", label: "Ember"    },
+  { from: "#A3E635", to: "#15803D", label: "Lime"     },
   { from: "#EF4444", to: "#EC4899", label: "Rose"     },
-  { from: "#8B5CF6", to: "#6366F1", label: "Violet"   },
-  { from: "#10B981", to: "#3B82F6", label: "Ocean"    },
+  { from: "#C2410C", to: "#7C2D12", label: "Ember"    },
+  { from: "#0F172A", to: "#1D4ED8", label: "Abyss"    },
   { from: "#3B82F6", to: "#8B5CF6", label: "Sapphire" },
   { from: "#F97316", to: "#EAB308", label: "Citrus"   },
   { from: "#06B6D4", to: "#10B981", label: "Mint"     },

@@ -200,17 +200,12 @@ export function DetailScreen() {
           <div className="space-y-2">
             {SLIDERS.map((s) => <VibeSlider key={s.key} def={s} value={pub.vibe[s.key]} />)}
           </div>
-          {/* Ratings count — replaces the old confidence pill */}
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1.5">
-            {[1,2,3,4,5].map((i) => (
-              <Star
-                key={i}
-                weight={i <= Math.round(pub.ratings / 20) ? "fill" : "regular"}
-                size={13}
-                className={i <= Math.round(pub.ratings / 20) ? "text-amber-400" : "text-gray-200"}
-              />
-            ))}
-            <span className="text-[12px] text-gray-500 ml-1">Based on {pub.ratings} ratings</span>
+          {/* Confidence score */}
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
+            <span className={`text-[11px] px-2 py-0.5 rounded-full border ${confidence(pub.ratings).color}`}>
+              {confidence(pub.ratings).label}
+            </span>
+            <span className="text-[12px] text-gray-500">based on {pub.ratings} ratings</span>
           </div>
         </div>
 
@@ -267,4 +262,10 @@ export function DetailScreen() {
       </div>
     </div>
   );
+}
+
+function confidence(ratings: number) {
+  if (ratings < 50)  return { label: "Low confidence",    color: "text-amber-700 bg-amber-50 border-amber-200" };
+  if (ratings < 200) return { label: "Medium confidence", color: "text-blue-700 bg-blue-50 border-blue-200" };
+  return                    { label: "High confidence",   color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
 }

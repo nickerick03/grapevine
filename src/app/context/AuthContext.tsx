@@ -2,11 +2,14 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 export interface AuthUser {
   name: string;
+  username: string;
   email: string;
   emoji: string;
   gradientFrom: string;
   gradientTo: string;
   profilePhoto?: string;
+  city?: string;
+  hideScore?: boolean;
 }
 
 interface AuthContextType {
@@ -56,10 +59,13 @@ export function buildUser(name: string, email: string): AuthUser {
   const emoji = AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)];
   return {
     name,
+    username: name.toLowerCase().replace(/\s+/g, ""),
     email,
     emoji,
     gradientFrom: AVATAR_GRADIENTS[idx].from,
     gradientTo: AVATAR_GRADIENTS[idx].to,
+    city: "",
+    hideScore: false,
   };
 }
 
