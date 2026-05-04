@@ -85,12 +85,18 @@ export function ProfileDrawer() {
         {/* Avatar + user info header */}
         <div className="px-5 pt-10 pb-5 border-b border-gray-100">
           <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-xl shadow-md mb-3"
-            style={{
-              background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})`,
-            }}
+            className="w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-md mb-3 overflow-hidden"
+            style={
+              user.profilePhoto
+                ? undefined
+                : { background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})` }
+            }
           >
-            {user.initials}
+            {user.profilePhoto ? (
+              <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-2xl">{user.emoji}</span>
+            )}
           </div>
           <div className="text-gray-900">{user.name}</div>
           <div className="text-[12px] text-gray-500 mt-0.5">{user.email}</div>

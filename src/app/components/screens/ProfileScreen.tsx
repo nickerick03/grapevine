@@ -8,6 +8,8 @@ import {
   PencilSimple,
   Clock,
   Plus,
+  Trophy,
+  Camera,
 } from "@phosphor-icons/react";
 import { useAuth } from "../../context/AuthContext";
 import { PUBS, SLIDERS } from "../vibe";
@@ -36,7 +38,12 @@ export function ProfileScreen() {
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
       {/* Sticky header */}
       <div className="flex-none flex items-center justify-between px-4 py-3 bg-white/70 backdrop-blur border-b border-gray-100 z-10">
-        <div className="w-9" /> {/* spacer */}
+        <button
+          onClick={() => navigate("/leaderboard")}
+          className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
+        >
+          <Trophy weight="duotone" size={17} className="text-amber-500" />
+        </button>
         <div className="text-gray-900">Profile</div>
         <button
           onClick={() => navigate("/settings")}
@@ -52,14 +59,37 @@ export function ProfileScreen() {
         <div className="px-4 pt-6 pb-4">
           <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.05)] p-5">
             <div className="flex items-center gap-4">
-              <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center text-white text-2xl shadow-lg flex-none"
-                style={{
-                  background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})`,
-                }}
+              <button
+                onClick={() => navigate("/photo-edit")}
+                className="relative flex-none group"
               >
-                {user.initials}
-              </div>
+                <div
+                  className="w-20 h-20 rounded-2xl flex items-center justify-center text-white shadow-lg overflow-hidden"
+                  style={
+                    user.profilePhoto
+                      ? undefined
+                      : { background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})` }
+                  }
+                >
+                  {user.profilePhoto ? (
+                    <img
+                      src={user.profilePhoto}
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-3xl">{user.emoji}</span>
+                  )}
+                </div>
+                {/* edit overlay */}
+                <div className="absolute inset-0 rounded-2xl bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <PencilSimple size={20} weight="bold" className="text-white" />
+                </div>
+                {/* camera badge */}
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-gray-900 border-2 border-white flex items-center justify-center">
+                  <Camera size={12} weight="fill" className="text-white" />
+                </div>
+              </button>
               <div className="flex-1 min-w-0">
                 <div className="text-gray-900 text-[17px]">{user.name}</div>
                 <div className="text-[12px] text-gray-500 mt-0.5 truncate">{user.email}</div>

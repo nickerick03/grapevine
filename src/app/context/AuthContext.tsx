@@ -3,15 +3,17 @@ import { createContext, useContext, useState, ReactNode } from "react";
 export interface AuthUser {
   name: string;
   email: string;
-  initials: string;
+  emoji: string;
   gradientFrom: string;
   gradientTo: string;
+  profilePhoto?: string;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   login: (user: AuthUser) => void;
   logout: () => void;
+  updateUser: (partial: Partial<AuthUser>) => void;
   authModalOpen: boolean;
   openAuthModal: () => void;
   closeAuthModal: () => void;
@@ -24,6 +26,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   login: () => {},
   logout: () => {},
+  updateUser: () => {},
   authModalOpen: false,
   openAuthModal: () => {},
   closeAuthModal: () => {},
@@ -40,18 +43,21 @@ const AVATAR_GRADIENTS = [
   { from: "#3B82F6", to: "#8B5CF6" },
 ];
 
+export const AVATAR_EMOJIS = [
+  "🦊","🐻","🦁","🐯","🐺","🦝","🦉","🐧","🦋","🌊",
+  "🍺","🎸","🎩","👑","🌈","🔥","✨","🎯","🏆","🚀",
+  "🌙","⭐","🎭","🌸","🍀","🎲","♟️","🧙","🤖","👻",
+  "🦸","🐉","🌵","🍄","🎪","💎","🔮","🎨","🌺","🪐",
+];
+
 export function buildUser(name: string, email: string): AuthUser {
-  const initials = name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
   const idx = name.charCodeAt(0) % AVATAR_GRADIENTS.length;
+  // pick a random emoji each time a new user is created
+  const emoji = AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)];
   return {
     name,
     email,
-    initials,
+    emoji,
     gradientFrom: AVATAR_GRADIENTS[idx].from,
     gradientTo: AVATAR_GRADIENTS[idx].to,
   };
@@ -72,12 +78,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileDrawerOpen(false);
   };
 
+  const updateUser = (partial: Partial<AuthUser>) => {
+    setUser((prev) => (prev ? { ...prev, ...partial } : prev));
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         login,
         logout,
+        updateUser,
         authModalOpen,
         openAuthModal: () => setAuthModalOpen(true),
         closeAuthModal: () => setAuthModalOpen(false),

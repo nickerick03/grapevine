@@ -1,7 +1,7 @@
 
-  # VibeMap App Design
+  # Grapevine
 
-  This is a code bundle for VibeMap App Design. The original project is available at https://www.figma.com/design/ijk99VfQdHjHqOXNMJK1mf/VibeMap-App-Design.
+  This is a code bundle for Grapevine. The original project is available at https://www.figma.com/design/ijk99VfQdHjHqOXNMJK1mf/Grapevine.
 
   ## Running the code
 
