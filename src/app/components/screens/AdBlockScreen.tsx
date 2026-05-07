@@ -9,7 +9,6 @@ import {
   ArrowLeft,
 } from "@phosphor-icons/react";
 import { useAdBlockDetection } from "../../hooks/useAdBlockDetection";
-import { AppLogo } from "../AppLogo";
 
 const STEPS = [
   {
@@ -28,7 +27,7 @@ const STEPS = [
     browser: "Safari",
     icon: "🔵",
     steps:
-      "Go to Safari → Settings → Extensions → disable your blocker for vibemap.app.",
+      "Go to Safari → Settings → Extensions → disable your blocker for grapevine.app.",
   },
   {
     browser: "uBlock / Adblock Plus",
@@ -52,15 +51,14 @@ export function AdBlockScreen() {
 
   /* ── Shared header ── */
   const Header = () => (
-    <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white/70 backdrop-blur-sm">
+    <div className="flex-none flex items-center gap-3 px-4 pt-3 pb-2 border-b border-gray-100 bg-white/70 backdrop-blur-sm">
       <button
         onClick={() => navigate(-1 as any)}
         className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm"
       >
         <ArrowLeft size={16} weight="bold" />
       </button>
-      <AppLogo />
-      <div className="text-gray-900 text-[15px]">Ad Block Check</div>
+      <div className="text-gray-900 text-[16px]">Ad Block Check</div>
     </div>
   );
 
@@ -89,7 +87,7 @@ export function AdBlockScreen() {
           <div>
             <div className="text-gray-900 text-[20px]">No ad blocker detected</div>
             <div className="text-gray-500 text-[13px] mt-2 leading-relaxed">
-              Great — ads are loading normally. VibeMap can continue to offer a
+              Great — ads are loading normally. Grapevine can continue to offer a
               free experience thanks to readers like you.
             </div>
           </div>
@@ -97,7 +95,7 @@ export function AdBlockScreen() {
           <div className="bg-emerald-50 border border-emerald-200/70 rounded-2xl p-4 flex gap-3 items-start text-left w-full">
             <PintGlass size={20} weight="duotone" className="text-emerald-500 flex-none mt-0.5" />
             <div className="text-[13px] text-emerald-900 leading-relaxed">
-              Every ad impression directly funds pub data maintenance, vibe
+              Every ad impression directly funds pub data maintenance, community
               ratings, and new features — at zero cost to you.
             </div>
           </div>
@@ -144,11 +142,6 @@ export function AdBlockScreen() {
           <ArrowLeft size={16} className="text-white" />
         </button>
 
-        {/* Logo */}
-        <div className="absolute top-4 left-4">
-          <AppLogo />
-        </div>
-
         {/* Shield badge */}
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
           <div className="w-16 h-16 rounded-2xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12)] flex items-center justify-center border border-gray-100">
@@ -162,7 +155,7 @@ export function AdBlockScreen() {
         <div className="text-center">
           <div className="text-gray-900 text-[20px] leading-snug">Ad blocker detected</div>
           <div className="text-gray-500 text-[13px] mt-2 leading-relaxed">
-            VibeMap is free to use — our only revenue comes from the ads you see
+            Grapevine is free to use — our only revenue comes from the ads you see
             while discovering pubs. With an ad blocker active, we can't keep the
             lights on.
           </div>
@@ -171,8 +164,8 @@ export function AdBlockScreen() {
         <div className="bg-amber-50 border border-amber-200/70 rounded-2xl p-4 flex gap-3 items-start">
           <PintGlass size={22} weight="duotone" className="text-amber-500 flex-none mt-0.5" />
           <div className="text-[13px] text-amber-900 leading-relaxed">
-            Ads help us maintain live pub data, vibe ratings, and new features —
-            all completely free for you. Disabling your blocker on VibeMap takes
+            Ads help us maintain live pub data, community ratings, and new features —
+            all completely free for you. Disabling your blocker on Grapevine takes
             under 10 seconds.
           </div>
         </div>

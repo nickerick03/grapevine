@@ -1,15 +1,18 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Check, Eye, EyeSlash } from "@phosphor-icons/react";
 import {
   User,
   Lock,
   MapPin,
+  CalendarDots,
   EyeClosed,
   ShieldCheck,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { useAuth } from "../../context/AuthContext";
+import { searchWorldCities } from "@/lib/services/cities";
+import { getLatestAllowedBirthDateIso, isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
 
 /* ── small reusable field wrapper ── */
 function Field({
@@ -53,13 +56,23 @@ function TextInput({
   onChange,
   placeholder,
   type = "text",
+  min,
+  max,
   prefix,
+  onFocus,
+  onBlur,
+  onKeyDown,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  min?: string;
+  max?: string;
   prefix?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   return (
     <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden focus-within:border-gray-400 focus-within:bg-white transition-all">
@@ -71,7 +84,12 @@ function TextInput({
       <input
         type={type}
         value={value}
+        min={min}
+        max={max}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         className="flex-1 px-3 py-3 bg-transparent text-[14px] text-gray-900 placeholder-gray-400 outline-none"
       />
@@ -143,24 +161,21 @@ function PasswordStrength({ password }: { password: string }) {
   );
 }
 
-/* ── POPULAR CITIES ── */
-const POPULAR_CITIES = [
-  "London", "Dublin", "Edinburgh", "Manchester", "Birmingham",
-  "Amsterdam", "Berlin", "Paris", "Barcelona", "New York",
-  "Sydney", "Melbourne", "Toronto", "Tokyo", "Copenhagen",
-];
-
 /* ═══════════════════════════════════════════════════════════ */
 export function EditProfileScreen() {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
+  const { user, profile, saveUserPreferences, changePassword } = useAuth();
 
   /* ── local state ── */
   const [username, setUsername]       = useState(user?.username ?? "");
   const [city, setCity]               = useState(user?.city ?? "");
   const [cityQuery, setCityQuery]     = useState(user?.city ?? "");
+  const [birthDate, setBirthDate]     = useState(profile?.birth_date ?? user?.birthDate ?? "");
   const [showCitySuggestions, setShowCitySuggestions] = useState(false);
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
+  const [citySearchLoading, setCitySearchLoading] = useState(false);
   const [hideScore, setHideScore]     = useState(user?.hideScore ?? false);
+  const [showPublicNotes, setShowPublicNotes] = useState(user?.showPublicNotes ?? true);
 
   const [currentPw, setCurrentPw]     = useState("");
   const [newPw, setNewPw]             = useState("");
@@ -169,6 +184,9 @@ export function EditProfileScreen() {
   const [errors, setErrors]           = useState<Record<string, string>>({});
   const [saved, setSaved]             = useState(false);
   const [pwSaved, setPwSaved]         = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const latestAllowedBirthDate = getLatestAllowedBirthDateIso();
 
   useEffect(() => {
     if (!user) navigate("/");
@@ -193,34 +211,112 @@ export function EditProfileScreen() {
     return "";
   })();
 
-  /* ── city suggestions ── */
-  const suggestions = POPULAR_CITIES.filter(
-    (c) => cityQuery.length > 0 && c.toLowerCase().startsWith(cityQuery.toLowerCase()) && c !== cityQuery
-  ).slice(0, 5);
+  const cityError = cityQuery.trim().length > 0 && cityQuery.trim().toLowerCase() !== city.trim().toLowerCase()
+    ? "Please pick a city from the suggestions list."
+    : "";
+  const birthDateError = (() => {
+    if (!birthDate.trim()) return "Birth date is required";
+    if (!isAtLeastAge(birthDate, MINIMUM_REGISTER_AGE)) {
+      return `You must be at least ${MINIMUM_REGISTER_AGE} years old.`;
+    }
+    return "";
+  })();
+
+  useEffect(() => {
+    if (!showCitySuggestions) {
+      return;
+    }
+
+    const query = cityQuery.trim();
+    if (query.length < 2) {
+      setCitySuggestions([]);
+      setCitySearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setCitySearchLoading(true);
+      searchWorldCities(query, controller.signal)
+        .then((results) => {
+          if (!cancelled) {
+            setCitySuggestions(results);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && !controller.signal.aborted) {
+            setCitySuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setCitySearchLoading(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [cityQuery, showCitySuggestions]);
 
   /* ── save profile ── */
-  const handleSave = () => {
+  const handleSave = async () => {
     if (usernameError) {
       setErrors({ username: usernameError });
       return;
     }
-    updateUser({
+    if (cityError) {
+      setErrors((e) => ({ ...e, city: cityError }));
+      return;
+    }
+    if (birthDateError) {
+      setErrors((e) => ({ ...e, birthDate: birthDateError }));
+      return;
+    }
+    setSavingProfile(true);
+    setErrors((e) => ({ ...e, username: "", city: "", birthDate: "" }));
+
+    const { error } = await saveUserPreferences({
       username: username.trim(),
       city: city.trim(),
+      birthDate: birthDate.trim(),
       hideScore,
+      showPublicNotes,
     });
+
+    setSavingProfile(false);
+    if (error) {
+      setErrors((e) => ({ ...e, username: error }));
+      return;
+    }
+
     setSaved(true);
-    setTimeout(() => { setSaved(false); }, 2000);
+    setTimeout(() => setSaved(false), 2000);
   };
 
   /* ── save password ── */
-  const handleSavePassword = () => {
+  const handleSavePassword = async () => {
     if (pwError) {
       setErrors((e) => ({ ...e, password: pwError }));
       return;
     }
-    // In a real app: call API to change password
-    setCurrentPw(""); setNewPw(""); setConfirmPw("");
+
+    setSavingPassword(true);
+    const { error } = await changePassword(currentPw, newPw);
+    setSavingPassword(false);
+
+    if (error) {
+      setErrors((e) => ({ ...e, password: error }));
+      return;
+    }
+
+    setCurrentPw("");
+    setNewPw("");
+    setConfirmPw("");
     setPwSaved(true);
     setTimeout(() => setPwSaved(false), 2500);
   };
@@ -237,7 +333,8 @@ export function EditProfileScreen() {
         </button>
         <span className="text-gray-900">Edit Profile</span>
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
+          disabled={savingProfile}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] transition-all ${
             saved
               ? "bg-emerald-500 text-white"
@@ -245,7 +342,7 @@ export function EditProfileScreen() {
           }`}
         >
           <Check size={13} weight="bold" />
-          {saved ? "Saved!" : "Save"}
+          {saved ? "Saved!" : savingProfile ? "Saving..." : "Save"}
         </button>
       </div>
 
@@ -291,18 +388,6 @@ export function EditProfileScreen() {
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)] p-5 space-y-5">
 
-            {/* Display name – read-only hint */}
-            <Field
-              label="Display name"
-              icon={<User size={14} />}
-              hint="Your name shown on ratings and reviews."
-            >
-              <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-[14px] text-gray-400">
-                {user.name}
-                <span className="ml-auto text-[11px] text-gray-300">read‑only</span>
-              </div>
-            </Field>
-
             {/* Username */}
             <Field
               label="Username"
@@ -325,22 +410,43 @@ export function EditProfileScreen() {
             <Field
               label="Your city"
               icon={<MapPin size={14} weight="duotone" />}
-              hint="Used to personalise nearby pub suggestions."
+              hint="Start typing and choose from worldwide city suggestions."
+              error={errors.city}
             >
               <div className="relative">
                 <TextInput
                   value={cityQuery}
                   onChange={(v) => {
                     setCityQuery(v);
-                    setCity(v);
+                    setCity("");
                     setShowCitySuggestions(true);
                     setErrors((e) => ({ ...e, city: "" }));
                   }}
-                  placeholder="e.g. London"
+                  onFocus={() => setShowCitySuggestions(true)}
+                  onBlur={() => {
+                    // Delay so click selection can register.
+                    setTimeout(() => setShowCitySuggestions(false), 120);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && citySuggestions.length > 0) {
+                      event.preventDefault();
+                      const first = citySuggestions[0];
+                      setCity(first);
+                      setCityQuery(first);
+                      setShowCitySuggestions(false);
+                    }
+                  }}
+                  placeholder="e.g. Budapest, London, Tokyo"
                 />
-                {showCitySuggestions && suggestions.length > 0 && (
+                {showCitySuggestions && (citySuggestions.length > 0 || citySearchLoading || cityQuery.trim().length >= 2) && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-gray-100 shadow-lg z-20 overflow-hidden">
-                    {suggestions.map((s) => (
+                    {citySearchLoading && citySuggestions.length === 0 ? (
+                      <div className="px-4 py-2.5 text-[12px] text-gray-500">Searching cities…</div>
+                    ) : null}
+                    {!citySearchLoading && citySuggestions.length === 0 && cityQuery.trim().length >= 2 ? (
+                      <div className="px-4 py-2.5 text-[12px] text-gray-500">No city matches found.</div>
+                    ) : null}
+                    {citySuggestions.map((s) => (
                       <button
                         key={s}
                         className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left"
@@ -357,6 +463,29 @@ export function EditProfileScreen() {
                   </div>
                 )}
               </div>
+            </Field>
+
+            {/* Birth date */}
+            <Field
+              label="Birth date"
+              icon={<CalendarDots size={14} weight="duotone" />}
+              hint={`You must be at least ${MINIMUM_REGISTER_AGE} years old.`}
+              error={errors.birthDate}
+            >
+              <TextInput
+                type="date"
+                value={birthDate}
+                max={latestAllowedBirthDate}
+                onChange={(v) => {
+                  setBirthDate(v);
+                  setErrors((e) => ({ ...e, birthDate: "" }));
+                }}
+                onBlur={() => {
+                  if (!birthDateError) return;
+                  setErrors((e) => ({ ...e, birthDate: birthDateError }));
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </Field>
           </div>
         </div>
@@ -375,7 +504,7 @@ export function EditProfileScreen() {
                 <div>
                   <div className="text-[14px] text-gray-900">Hide my score</div>
                   <div className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">
-                    Your VibeScore won't appear on the leaderboard or your public profile.
+                    Your Grapevine Score won't appear on the leaderboard or your public profile.
                   </div>
                 </div>
               </div>
@@ -397,10 +526,44 @@ export function EditProfileScreen() {
               <div className="mt-3 flex items-center gap-2 bg-purple-50 rounded-xl px-3 py-2.5">
                 <EyeClosed size={14} className="text-purple-400 flex-none" />
                 <p className="text-[11px] text-purple-600">
-                  Your score is currently hidden from the community.
+                  Your Grapevine Score is currently hidden from the community.
                 </p>
               </div>
             )}
+
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-none mt-0.5">
+                  <ShieldCheck size={17} weight="duotone" className="text-blue-500" />
+                </div>
+                <div>
+                  <div className="text-[14px] text-gray-900">Show my notes publicly</div>
+                  <div className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">
+                    Allows your profile page to display the notes you wrote on places.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPublicNotes((value) => !value)}
+                className={`flex-none w-12 h-7 rounded-full transition-colors relative ${
+                  showPublicNotes ? "bg-blue-500" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-all ${
+                    showPublicNotes ? "left-[calc(100%-26px)]" : "left-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            {!showPublicNotes ? (
+              <div className="mt-3 flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2.5">
+                <EyeClosed size={14} className="text-blue-400 flex-none" />
+                <p className="text-[11px] text-blue-600">
+                  Your notes are hidden from your public profile.
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -447,14 +610,15 @@ export function EditProfileScreen() {
             </Field>
 
             <button
-              onClick={handleSavePassword}
+              onClick={() => void handleSavePassword()}
+              disabled={savingPassword}
               className={`w-full py-3 rounded-xl text-[13px] transition-all ${
                 pwSaved
                   ? "bg-emerald-500 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-[0.98]"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
               }`}
             >
-              {pwSaved ? "✓ Password updated" : "Update password"}
+              {pwSaved ? "✓ Password updated" : savingPassword ? "Updating..." : "Update password"}
             </button>
           </div>
         </div>

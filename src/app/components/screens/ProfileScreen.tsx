@@ -1,50 +1,217 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Settings } from "lucide-react";
-import {
-  Star,
-  Bookmark,
-  MapPin,
-  PencilSimple,
-  Clock,
-  Plus,
-  Trophy,
-  Camera,
-} from "@phosphor-icons/react";
+import { Star, Bookmark, MapPin, PencilSimple, Plus, Trophy, Trash, CaretDown } from "@phosphor-icons/react";
+import type { PlaceRatingRecord } from "@/types/place";
 import { useAuth } from "../../context/AuthContext";
-import { PUBS, SLIDERS } from "../vibe";
-import { BottomNav } from "../BottomNav";
+import { usePlaces } from "../../context/PlacesContext";
 import { AdUnit } from "../AdUnit";
+import { BottomNav } from "../BottomNav";
+import { deleteOwnRating, getRatingsByUser, getSavedPlaceIds } from "@/lib/services/places";
+import { getGrapevineScoreByUserId, type GrapevineScoreBreakdown } from "@/lib/services/profile";
+import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { type Pub } from "../vibe";
+import { AuthScreen } from "./AuthScreen";
+import { formatPubAddress } from "../placeAddress";
 
-const MOCK_RATINGS = [
-  { pub: PUBS[0], visitType: "Weekend evening", note: "Incredible atmosphere, went twice this trip!" },
-  { pub: PUBS[1], visitType: "Weekday evening", note: "Perfect for a quiet catch-up." },
-  { pub: PUBS[5], visitType: "Late night",      note: "Hidden gem, recommend to everyone." },
+const CONTRIBUTION_TRAITS: Array<{
+  key: keyof Pick<
+    PlaceRatingRecord,
+    "classic_modern" | "quiet_lively" | "cheap_premium" | "local_touristy" | "cozy_spacious"
+  >;
+  color: string;
+}> = [
+  { key: "classic_modern", color: "#F59E0B" },
+  { key: "quiet_lively", color: "#EF4444" },
+  { key: "cheap_premium", color: "#10B981" },
+  { key: "local_touristy", color: "#3B82F6" },
+  { key: "cozy_spacious", color: "#8B5CF6" },
 ];
 
-const MOCK_SAVED = [PUBS[2], PUBS[3]];
+function RatingCard({
+  rating,
+  placeName,
+  onOpenPlace,
+  onDelete,
+  deleting,
+}: {
+  rating: PlaceRatingRecord;
+  placeName: string;
+  onOpenPlace: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="relative">
+      <div className="absolute top-2 right-2 z-10">
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          disabled={deleting}
+          className="w-7 h-7 rounded-full bg-red-50 border border-red-100 text-red-600 flex items-center justify-center disabled:opacity-60"
+          aria-label="Delete rating"
+          title="Delete rating"
+        >
+          <Trash size={13} weight="duotone" />
+        </button>
+      </div>
+
+      <button
+        onClick={onOpenPlace}
+        className="relative w-full text-left bg-white rounded-2xl border border-gray-100 p-3 pr-12 shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+      >
+        <div className="text-[13px] text-gray-900 truncate">{placeName}</div>
+        <div className="text-[11px] text-gray-500 mt-0.5">{new Date(rating.updated_at).toLocaleDateString()}</div>
+        <div className="mt-2 p-2 rounded-xl border border-gray-100 bg-gray-50">
+          <div className="text-center text-[11px] text-gray-500 mb-1.5">Your contribution</div>
+          <div className="space-y-1">
+            {CONTRIBUTION_TRAITS.map((trait) => (
+              <div key={trait.key} className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full flex-none" style={{ background: trait.color }} />
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden flex-1">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${rating[trait.key]}%`, background: trait.color }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {rating.note ? (
+          <div className="text-[12px] text-gray-700 mt-2 line-clamp-2">{rating.note}</div>
+        ) : null}
+      </button>
+    </div>
+  );
+}
 
 export function ProfileScreen() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { pubs } = usePlaces();
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [ratingCount, setRatingCount] = useState(0);
+  const [userRatings, setUserRatings] = useState<PlaceRatingRecord[]>([]);
+  const [deletingRatingId, setDeletingRatingId] = useState<string | null>(null);
+  const [scoreExpanded, setScoreExpanded] = useState(false);
+  const [scoreBreakdown, setScoreBreakdown] = useState<GrapevineScoreBreakdown>({
+    grapevineScore: 0,
+    helpfulVotesReceived: 0,
+    firstRatingsSubmitted: 0,
+    uniqueCitiesCovered: 0,
+    reviewsSubmitted: 0,
+    notesSubmitted: 0,
+  });
 
   useEffect(() => {
-    if (!user) navigate("/");
-  }, [user, navigate]);
+    if (!user) {
+      setSavedIds([]);
+      setRatingCount(0);
+      setUserRatings([]);
+      return;
+    }
+    const userId = user.id;
 
-  if (!user) return null;
+    let cancelled = false;
+
+    async function loadProfileActivity() {
+      try {
+        const [ids, ratings, score] = await Promise.all([
+          getSavedPlaceIds(userId),
+          getRatingsByUser(userId, 100),
+          getGrapevineScoreByUserId(userId),
+        ]);
+        if (!cancelled) {
+          setSavedIds(ids);
+          setRatingCount(ratings.length);
+          setUserRatings(ratings.slice(0, 12));
+          setScoreBreakdown(score);
+        }
+      } catch {
+        if (!cancelled) {
+          setSavedIds([]);
+          setRatingCount(0);
+          setUserRatings([]);
+          setScoreBreakdown({
+            grapevineScore: 0,
+            helpfulVotesReceived: 0,
+            firstRatingsSubmitted: 0,
+            uniqueCitiesCovered: 0,
+            reviewsSubmitted: 0,
+            notesSubmitted: 0,
+          });
+        }
+      }
+    }
+
+    loadProfileActivity();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const savedPlaces = useMemo<Pub[]>(
+    () =>
+      savedIds
+        .map((id) => pubs.find((pub) => pub.id === id))
+        .filter((pub): pub is Pub => Boolean(pub)),
+    [pubs, savedIds],
+  );
+  const cityCount = useMemo(() => new Set(savedPlaces.map((pub) => pub.city)).size, [savedPlaces]);
+  const ratedPlacesById = useMemo(() => new Map(pubs.map((pub) => [pub.id, pub])), [pubs]);
+  const profileUsername = useMemo(() => {
+    const rawUsername = (user?.username ?? "").replace(/^@+/, "").trim();
+    if (rawUsername) {
+      return `@${rawUsername}`;
+    }
+
+    const fromEmail = user?.email?.split("@")[0]?.trim();
+    if (fromEmail) {
+      return `@${fromEmail}`;
+    }
+
+    return user?.name ?? "User";
+  }, [user?.email, user?.name, user?.username]);
+
+  const handleDeleteRating = async (ratingId: string) => {
+    if (!user || deletingRatingId) {
+      return;
+    }
+    setDeletingRatingId(ratingId);
+    try {
+      await deleteOwnRating(user.id, ratingId);
+      setUserRatings((previous) => previous.filter((entry) => entry.id !== ratingId));
+      setRatingCount((count) => Math.max(0, count - 1));
+    } finally {
+      setDeletingRatingId(null);
+    }
+  };
+
+  if (!user) {
+    return <AuthScreen profileMode />;
+  }
+
+  const scoreLines = [
+    { label: "Helpful votes received", value: scoreBreakdown.helpfulVotesReceived, weight: 0.1 },
+    { label: "First ratings on unrated places", value: scoreBreakdown.firstRatingsSubmitted, weight: 5 },
+    { label: "Unique cities covered", value: scoreBreakdown.uniqueCitiesCovered, weight: 10 },
+    { label: "Reviews submitted", value: scoreBreakdown.reviewsSubmitted, weight: 1 },
+    { label: "Notes submitted", value: scoreBreakdown.notesSubmitted, weight: 3 },
+  ];
+
+  const formatScore = (value: number) => {
+    const rounded = Math.round(value * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  };
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
-      {/* Sticky header */}
-      <div className="flex-none flex items-center justify-between px-4 py-3 bg-white/70 backdrop-blur border-b border-gray-100 z-10">
-        <button
-          onClick={() => navigate("/leaderboard")}
-          className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
-        >
-          <Trophy weight="duotone" size={17} className="text-amber-500" />
-        </button>
-        <div className="text-gray-900">Profile</div>
+      <div className="flex-none flex items-center justify-between px-4 pt-3 pb-2 bg-white/70 backdrop-blur border-b border-gray-100 z-10">
+        <div className="w-9" />
+        <div className="text-gray-900 text-[16px]">Profile</div>
         <button
           onClick={() => navigate("/settings")}
           className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
@@ -53,45 +220,22 @@ export function ProfileScreen() {
         </button>
       </div>
 
-      {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Hero / Avatar */}
         <div className="px-4 pt-6 pb-4">
           <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.05)] p-5">
             <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate("/photo-edit")}
-                className="relative flex-none group"
+              <div
+                className="w-20 h-20 rounded-2xl overflow-hidden flex items-center justify-center text-white text-2xl shadow-lg flex-none"
+                style={{ background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})` }}
               >
-                <div
-                  className="w-20 h-20 rounded-2xl flex items-center justify-center text-white shadow-lg overflow-hidden"
-                  style={
-                    user.profilePhoto
-                      ? undefined
-                      : { background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})` }
-                  }
-                >
-                  {user.profilePhoto ? (
-                    <img
-                      src={user.profilePhoto}
-                      alt={user.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-3xl">{user.emoji}</span>
-                  )}
-                </div>
-                {/* edit overlay */}
-                <div className="absolute inset-0 rounded-2xl bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <PencilSimple size={20} weight="bold" className="text-white" />
-                </div>
-                {/* camera badge */}
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-gray-900 border-2 border-white flex items-center justify-center">
-                  <Camera size={12} weight="fill" className="text-white" />
-                </div>
-              </button>
+                {user.profilePhoto ? (
+                  <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover rounded-2xl" />
+                ) : (
+                  user.emoji
+                )}
+              </div>
               <div className="flex-1 min-w-0">
-                <div className="text-gray-900 text-[17px]">{user.name}</div>
+                <div className="text-gray-900 text-[17px]">{profileUsername}</div>
                 <div className="text-[12px] text-gray-500 mt-0.5 truncate">{user.email}</div>
                 <button
                   onClick={() => navigate("/edit-profile")}
@@ -102,14 +246,13 @@ export function ProfileScreen() {
               </div>
             </div>
 
-            {/* Stats row */}
             <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-gray-100">
               {[
-                { icon: <Star weight="duotone" size={16} className="text-amber-500" />, value: "12", label: "Pubs rated" },
-                { icon: <Bookmark weight="duotone" size={16} className="text-blue-500" />, value: "8", label: "Saved" },
-                { icon: <MapPin weight="duotone" size={16} className="text-emerald-500" />, value: "3", label: "Cities" },
-              ].map((stat, i) => (
-                <div key={i} className="text-center">
+                { icon: <Star weight="duotone" size={16} className="text-amber-500" />, value: String(ratingCount), label: "Ratings" },
+                { icon: <Bookmark weight="duotone" size={16} className="text-blue-500" />, value: String(savedPlaces.length), label: "Saved" },
+                { icon: <MapPin weight="duotone" size={16} className="text-emerald-500" />, value: String(cityCount), label: "Cities" },
+              ].map((stat, index) => (
+                <div key={index} className="text-center">
                   <div className="flex items-center justify-center gap-1 mb-0.5">
                     {stat.icon}
                     <span className="text-gray-900">{stat.value}</span>
@@ -117,6 +260,52 @@ export function ProfileScreen() {
                   <div className="text-[11px] text-gray-500">{stat.label}</div>
                 </div>
               ))}
+            </div>
+
+            <button
+              onClick={() => navigate("/leaderboard")}
+              className="mt-4 w-full py-2.5 rounded-xl bg-gray-900 text-white text-[13px] flex items-center justify-center gap-2"
+            >
+              <Trophy weight="duotone" size={16} />
+              Open leaderboard
+            </button>
+
+            <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-3">
+              <button
+                onClick={() => setScoreExpanded((previous) => !previous)}
+                className="w-full flex items-center justify-between"
+                aria-expanded={scoreExpanded}
+              >
+                <div className="text-[12px] text-gray-700">Grapevine Score</div>
+                <div className="flex items-center gap-1.5 text-gray-900">
+                  <span className="text-[16px]">{formatScore(scoreBreakdown.grapevineScore)}</span>
+                  <CaretDown
+                    size={14}
+                    className={`text-gray-500 transition-transform ${scoreExpanded ? "rotate-180" : ""}`}
+                  />
+                </div>
+              </button>
+              {scoreExpanded ? (
+                <>
+                  <div className="mt-2 space-y-1">
+                    {scoreLines.map((line) => (
+                      <div key={line.label} className="flex items-center justify-between text-[11px] text-gray-600">
+                        <span className="truncate pr-2">
+                          {line.label} ({line.value}) × {line.weight}
+                        </span>
+                        <span className="text-gray-700">
+                          +{formatScore(line.value * line.weight)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {user.hideScore ? (
+                    <div className="mt-2 text-[10.5px] text-purple-600">
+                      Hidden from public leaderboard by your privacy setting.
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -142,96 +331,87 @@ export function ProfileScreen() {
           </div>
         )}
 
-        {/* Saved Places */}
         <div className="px-4 pb-4">
           <div className="flex items-center justify-between mb-2 px-1">
             <div className="flex items-center gap-2 text-gray-700">
               <Bookmark weight="duotone" size={16} className="text-blue-500" />
               Saved places
             </div>
-            <button
-              onClick={() => navigate("/saved")}
-              className="text-[12px] text-gray-500"
-            >
+            <button onClick={() => navigate("/saved")} className="text-[12px] text-gray-500">
               See all
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {MOCK_SAVED.map((pub) => (
-              <button
-                key={pub.id}
-                onClick={() => navigate(`/detail/${pub.id}`)}
-                className="text-left bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
-              >
-                <img src={pub.image} alt={pub.name} className="w-full h-20 object-cover" />
-                <div className="p-2.5">
-                  <div className="text-[12px] text-gray-900 truncate">{pub.name}</div>
-                  <div className="text-[10px] text-gray-500 mt-0.5">{pub.area}</div>
-                </div>
-              </button>
-            ))}
-          </div>
+          {savedPlaces.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
+              <div className="text-[13px] text-gray-900">No saved places yet</div>
+              <div className="text-[12px] text-gray-500 mt-1">Start bookmarking places from Explore.</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {savedPlaces.map((pub) => (
+                <button
+                  key={pub.id}
+                  onClick={() => navigate(`/detail/${pub.id}`)}
+                  className="text-left bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-[0_2px_8px_rgba(0,0,0,0.04)]"
+                >
+                  <ImageWithFallback src={pub.image} alt={pub.name} className="w-full h-20 object-cover" />
+                  <div className="p-2.5">
+                    <div className="text-[12px] text-gray-900 truncate">{pub.name}</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1">
+                      <MapPin size={9} className="text-blue-400" />
+                      <span className="truncate">{formatPubAddress(pub)}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Ad — between saved places and recent ratings */}
         <div className="px-4 pb-3">
-          <AdUnit variant="native" index={0} />
+          <AdUnit variant="native" />
         </div>
 
-        {/* Recent Ratings */}
         <div className="px-4 pb-4">
           <div className="flex items-center justify-between mb-2 px-1">
             <div className="flex items-center gap-2 text-gray-700">
               <Star weight="duotone" size={16} className="text-amber-500" />
-              Recent ratings
+              Ratings
             </div>
-            <button className="text-[12px] text-gray-500">See all</button>
           </div>
-          <div className="space-y-2">
-            {MOCK_RATINGS.map(({ pub, visitType, note }, i) => (
-              <button
-                key={i}
-                onClick={() => navigate(`/detail/${pub.id}`)}
-                className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)] p-3"
-              >
-                <div className="flex items-start gap-3">
-                  <img
-                    src={pub.image}
-                    alt={pub.name}
-                    className="w-12 h-12 rounded-xl object-cover flex-none"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-gray-900 text-[13px] truncate">{pub.name}</div>
-                    <div className="flex items-center gap-1 text-[11px] text-gray-400 mt-0.5">
-                      <Clock size={11} /> {visitType}
-                    </div>
-                    <div className="text-[12px] text-gray-600 mt-1 line-clamp-1">{note}</div>
-                  </div>
-                </div>
-                <div className="flex gap-1 mt-2.5">
-                  {SLIDERS.map((s) => (
-                    <div key={s.key} className="flex-1 h-1 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full opacity-70"
-                        style={{ width: `${pub.vibe[s.key]}%`, background: s.color }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </button>
-            ))}
+          <div className="space-y-2.5">
+            {userRatings.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-4 text-center">
+                <div className="text-[13px] text-gray-900">No ratings yet</div>
+                <div className="text-[12px] text-gray-500 mt-1">Rate places to build your profile history.</div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {userRatings.map((rating) => {
+                  const ratedPlace = ratedPlacesById.get(rating.place_id);
+                  return (
+                    <RatingCard
+                      key={rating.id}
+                      rating={rating}
+                      placeName={ratedPlace?.name ?? "Place"}
+                      onOpenPlace={() => navigate(`/detail/${rating.place_id}`)}
+                      onDelete={() => void handleDeleteRating(rating.id)}
+                      deleting={deletingRatingId === rating.id}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            <button
+              onClick={() => navigate("/profile/ratings")}
+              className="w-full py-2.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-700"
+            >
+              Show all my ratings
+            </button>
           </div>
         </div>
 
-        {/* Log out */}
-        <div className="px-4 pb-[84px]">
-          <button
-            onClick={() => { logout(); navigate("/"); }}
-            className="w-full py-3 rounded-2xl border border-red-100 bg-red-50 text-red-600 text-[14px] hover:bg-red-100 transition-colors"
-          >
-            Log out
-          </button>
-        </div>
+        <div className="pb-[84px]" />
       </div>
 
       <BottomNav />

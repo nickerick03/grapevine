@@ -15,6 +15,27 @@ import { AddPlaceScreen } from "./components/screens/AddPlaceScreen";
 import { LeaderboardScreen } from "./components/screens/LeaderboardScreen";
 import { PhotoEditScreen } from "./components/screens/PhotoEditScreen";
 import { EditProfileScreen } from "./components/screens/EditProfileScreen";
+import { PublicProfileScreen } from "./components/screens/PublicProfileScreen";
+import { ProfileRatingsScreen } from "./components/screens/ProfileRatingsScreen";
+import { TraitPillGuideScreen } from "./components/screens/TraitPillGuideScreen";
+import { TraitPillScreen } from "./components/screens/TraitPillScreen";
+import { NotFoundScreen } from "./components/screens/NotFoundScreen";
+import { PrivacyDataScreen } from "./components/screens/PrivacyDataScreen";
+import {
+  ContactInfoScreen,
+  CookiePolicyScreen,
+  DataDeletionRequestScreen,
+  ImpressumScreen,
+  PrivacyPolicyScreen,
+  TermsOfServiceScreen,
+} from "./components/screens/LegalInfoScreens";
+import { ReportBugScreen } from "./components/screens/ReportBugScreen";
+import { AdminOverviewScreen } from "./components/screens/AdminOverviewScreen";
+import { AdminVenuesScreen } from "./components/screens/AdminVenuesScreen";
+import { AdminUsersScreen } from "./components/screens/AdminUsersScreen";
+import { AdminBugsScreen } from "./components/screens/AdminBugsScreen";
+import { AdminFlagsScreen } from "./components/screens/AdminFlagsScreen";
+import { AdminLegalScreen } from "./components/screens/AdminLegalScreen";
 
 const router = createBrowserRouter([
   {
@@ -29,6 +50,8 @@ const router = createBrowserRouter([
       { path: "similar/:id", Component: SimilarScreen },
       { path: "similar", Component: SimilarScreen },
       { path: "profile", Component: ProfileScreen },
+      { path: "profile/ratings", Component: ProfileRatingsScreen },
+      { path: "profile/:username", Component: PublicProfileScreen },
       { path: "auth", Component: AuthScreen },
       { path: "nearby", Component: NearbyScreen },
       { path: "saved", Component: SavedScreen },
@@ -38,6 +61,39 @@ const router = createBrowserRouter([
       { path: "leaderboard", Component: LeaderboardScreen },
       { path: "photo-edit", Component: PhotoEditScreen },
       { path: "edit-profile", Component: EditProfileScreen },
+      { path: "settings/pills", Component: TraitPillGuideScreen },
+      { path: "/settings/pills", Component: TraitPillGuideScreen },
+      { path: "settings/privacy-data", Component: PrivacyDataScreen },
+      { path: "/settings/privacy-data", Component: PrivacyDataScreen },
+      { path: "settings/privacy-policy", Component: PrivacyPolicyScreen },
+      { path: "/settings/privacy-policy", Component: PrivacyPolicyScreen },
+      { path: "settings/cookie-policy", Component: CookiePolicyScreen },
+      { path: "/settings/cookie-policy", Component: CookiePolicyScreen },
+      { path: "settings/terms-of-service", Component: TermsOfServiceScreen },
+      { path: "/settings/terms-of-service", Component: TermsOfServiceScreen },
+      { path: "settings/impressum", Component: ImpressumScreen },
+      { path: "/settings/impressum", Component: ImpressumScreen },
+      { path: "settings/data-deletion", Component: DataDeletionRequestScreen },
+      { path: "/settings/data-deletion", Component: DataDeletionRequestScreen },
+      { path: "settings/contact", Component: ContactInfoScreen },
+      { path: "/settings/contact", Component: ContactInfoScreen },
+      { path: "settings/report-bug", Component: ReportBugScreen },
+      { path: "/settings/report-bug", Component: ReportBugScreen },
+      { path: "admin", Component: AdminOverviewScreen },
+      { path: "/admin", Component: AdminOverviewScreen },
+      { path: "admin/venues", Component: AdminVenuesScreen },
+      { path: "/admin/venues", Component: AdminVenuesScreen },
+      { path: "admin/users", Component: AdminUsersScreen },
+      { path: "/admin/users", Component: AdminUsersScreen },
+      { path: "admin/flags", Component: AdminFlagsScreen },
+      { path: "/admin/flags", Component: AdminFlagsScreen },
+      { path: "admin/legal", Component: AdminLegalScreen },
+      { path: "/admin/legal", Component: AdminLegalScreen },
+      { path: "admin/bugs", Component: AdminBugsScreen },
+      { path: "/admin/bugs", Component: AdminBugsScreen },
+      { path: "pill/:slug", Component: TraitPillScreen },
+      { path: "/pill/:slug", Component: TraitPillScreen },
+      { path: "*", Component: NotFoundScreen },
     ],
   },
 ]);

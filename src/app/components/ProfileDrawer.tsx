@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -22,12 +22,27 @@ interface MenuItem {
 export function ProfileDrawer() {
   const { user, logout, profileDrawerOpen, closeProfileDrawer } = useAuth();
   const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
 
   if (!profileDrawerOpen || !user) return null;
 
   const goTo = (path: string) => {
     closeProfileDrawer();
     navigate(path);
+  };
+
+  const handleSignOut = async () => {
+    if (signingOut) {
+      return;
+    }
+    setSigningOut(true);
+    try {
+      await logout();
+      closeProfileDrawer();
+      navigate("/");
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const menuItems: MenuItem[] = [
@@ -58,7 +73,13 @@ export function ProfileDrawer() {
     {
       icon: <GearSix weight="duotone" size={20} />,
       label: "Settings",
-      action: () => goTo("/profile"),
+      action: () => goTo("/settings"),
+    },
+    {
+      icon: <Star weight="duotone" size={20} />,
+      label: "Leaderboard",
+      sub: "Top community contributors",
+      action: () => goTo("/leaderboard"),
     },
     {
       icon: <ChatCircle weight="duotone" size={20} />,
@@ -144,11 +165,12 @@ export function ProfileDrawer() {
         {/* Log out */}
         <div className="flex-none px-5 py-4 border-t border-gray-100">
           <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors"
+            onClick={() => void handleSignOut()}
+            disabled={signingOut}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <SignOut size={18} weight="duotone" />
-            <span className="text-[14px]">Log out</span>
+            <span className="text-[14px]">{signingOut ? "Logging out..." : "Log out"}</span>
           </button>
         </div>
       </div>

@@ -15,8 +15,11 @@ import {
   Tag,
   Star,
 } from "@phosphor-icons/react";
-import { SLIDERS, QUICK_CHIPS, PUBS } from "../vibe";
+import { SLIDERS, QUICK_CHIPS, type Pub } from "../vibe";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { usePlaces } from "../../context/PlacesContext";
+import { formatDistance, type DistanceUnit, useSettings } from "../../context/SettingsContext";
+import { formatPubAddress } from "../placeAddress";
 
 // ─── Mock distances ───────────────────────────────────────────────────────────
 
@@ -188,9 +191,13 @@ function PinMapStep({
 // ─── Step 2 — Basic info + image ─────────────────────────────────────────────
 
 function BasicInfoStep({
+  existingPubs,
+  distanceUnit,
   data,
   onChange,
 }: {
+  existingPubs: Pub[];
+  distanceUnit: DistanceUnit;
   data: {
     name: string;
     area: string;
@@ -208,12 +215,12 @@ function BasicInfoStep({
   const searchResults = useMemo(() => {
     const q = data.name.trim().toLowerCase();
     if (!q) return [];
-    return PUBS.filter(
+    return existingPubs.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.area.toLowerCase().includes(q)
     ).slice(0, 5);
-  }, [data.name]);
+  }, [data.name, existingPubs]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -240,7 +247,7 @@ function BasicInfoStep({
     onChange({ chips: next });
   };
 
-  const selectPub = (pub: typeof PUBS[number]) => {
+  const selectPub = (pub: Pub) => {
     onChange({ name: pub.name, area: pub.area, city: pub.city });
     setDropdownOpen(false);
   };
@@ -346,13 +353,13 @@ function BasicInfoStep({
                             </div>
                             <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-0.5">
                               <MapPin size={9} weight="duotone" className="text-blue-400 flex-none" />
-                              {pub.area}
+                              <span className="truncate">{formatPubAddress(pub)}</span>
                             </div>
                           </div>
                           <div className="flex-none text-right">
                             {dist !== null && (
                               <div className="text-[11px] text-blue-600 leading-tight">
-                                {dist} km
+                                {formatDistance(dist, distanceUnit, 1)}
                               </div>
                             )}
                             <div className="flex items-center gap-0.5 justify-end mt-0.5">
@@ -434,16 +441,16 @@ function BasicInfoStep({
         <textarea
           value={data.description}
           onChange={(e) => onChange({ description: e.target.value })}
-          placeholder="Describe the vibe in one or two sentences…"
+          placeholder="Describe the place in one or two sentences…"
           rows={3}
           className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-white text-[13px] text-gray-800 placeholder-gray-400 outline-none focus:border-gray-400 transition-colors resize-none"
         />
       </div>
 
-      {/* Vibe chips */}
+      {/* Place tags */}
       <div>
         <label className="text-[12px] text-gray-500 mb-1.5 flex items-center gap-1">
-          <Tag size={12} /> Vibe tags
+          <Tag size={12} /> Place tags
         </label>
         <div className="flex flex-wrap gap-1.5">
           {QUICK_CHIPS.map((chip) => {
@@ -468,6 +475,29 @@ function BasicInfoStep({
   );
 }
 
+// ─── Hours model ─────────────────────────────────────────────────────────────
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+type DayName = (typeof DAYS)[number];
+
+interface DayHours {
+  open: string;
+  close: string;
+  closed: boolean;
+}
+
+type HoursMap = Record<DayName, DayHours>;
+
+const DEFAULT_HOURS: HoursMap = {
+  Mon: { open: "16:00", close: "00:00", closed: false },
+  Tue: { open: "16:00", close: "00:00", closed: false },
+  Wed: { open: "16:00", close: "00:00", closed: false },
+  Thu: { open: "16:00", close: "00:00", closed: false },
+  Fri: { open: "16:00", close: "02:00", closed: false },
+  Sat: { open: "16:00", close: "02:00", closed: false },
+  Sun: { open: "16:00", close: "23:00", closed: true },
+};
+
 // ─── Step 3 — Opening hours & contact ────────────────────────────────────────
 
 function HoursStep({
@@ -481,7 +511,7 @@ function HoursStep({
   onHours: (h: HoursMap) => void;
   onContact: (c: { phone: string; website: string }) => void;
 }) {
-  const updateDay = (day: string, patch: Partial<DayHours>) => {
+  const updateDay = (day: DayName, patch: Partial<DayHours>) => {
     onHours({ ...hours, [day]: { ...hours[day], ...patch } });
   };
 
@@ -599,7 +629,7 @@ function VibeStep({
   return (
     <div className="flex flex-col gap-5">
       <p className="text-[13px] text-gray-500">
-        Set the vibe of this place using the sliders below. Be honest — this
+        Set the profile of this place using the sliders below. Be honest — this
         helps others find it!
       </p>
       {SLIDERS.map((s) => (
@@ -684,10 +714,12 @@ function SuccessView({
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ["Location", "Details", "Hours", "Vibe"];
+const STEP_LABELS = ["Location", "Details", "Hours", "Profile"];
 
 export function AddPlaceScreen() {
   const navigate = useNavigate();
+  const { pubs } = usePlaces();
+  const { distanceUnit } = useSettings();
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
 
@@ -736,9 +768,9 @@ export function AddPlaceScreen() {
   if (done) {
     return (
       <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
-        <div className="flex-none flex items-center justify-between px-4 py-3 bg-white/70 backdrop-blur border-b border-gray-100">
+        <div className="flex-none flex items-center justify-between px-4 pt-3 pb-2 bg-white/70 backdrop-blur border-b border-gray-100">
           <div className="w-9" />
-          <div className="text-gray-900">Add New Place</div>
+          <div className="text-gray-900 text-[16px]">Add New Place</div>
           <div className="w-9" />
         </div>
         <SuccessView
@@ -753,14 +785,14 @@ export function AddPlaceScreen() {
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
       {/* Header */}
-      <div className="flex-none flex items-center justify-between px-4 py-3 bg-white/70 backdrop-blur border-b border-gray-100 z-10">
+      <div className="flex-none flex items-center justify-between px-4 pt-3 pb-2 bg-white/70 backdrop-blur border-b border-gray-100 z-10">
         <button
           onClick={handleBack}
           className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
         >
           <ArrowLeft size={16} className="text-gray-600" />
         </button>
-        <div className="text-gray-900">Add New Place</div>
+        <div className="text-gray-900 text-[16px]">Add New Place</div>
         <button
           onClick={() => navigate("/profile")}
           className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
@@ -813,6 +845,8 @@ export function AddPlaceScreen() {
         )}
         {step === 1 && (
           <BasicInfoStep
+            existingPubs={pubs}
+            distanceUnit={distanceUnit}
             data={basicInfo}
             onChange={(patch) => setBasicInfo((p) => ({ ...p, ...patch }))}
           />

@@ -13,7 +13,7 @@ export function BottomNav() {
   ];
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 h-[60px] z-30 bg-white/95 backdrop-blur-md border-t border-gray-100 flex items-center">
+    <div className="absolute bottom-0 left-0 right-0 h-[60px] z-[60] bg-white/95 backdrop-blur-md border-t border-gray-100 flex items-center">
       {tabs.map(({ label, icon: Icon, path }) => {
         const active = pathname === path;
         return (
@@ -22,11 +22,21 @@ export function BottomNav() {
             onClick={() => navigate(path)}
             className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors"
           >
-            <Icon
-              weight={active ? "fill" : "regular"}
-              size={22}
-              style={{ color: active ? "#111827" : "#9ca3af" }}
-            />
+            {label === "Explore" ? (
+              <img
+                src={active ? "/icons/leaf-icon-selected.svg" : "/icons/leaf-icon-default.svg"}
+                alt=""
+                aria-hidden="true"
+                className="w-[22px] h-[22px] object-contain"
+                draggable={false}
+              />
+            ) : (
+              <Icon
+                weight={active ? "fill" : "regular"}
+                size={22}
+                style={{ color: active ? "#111827" : "#9ca3af" }}
+              />
+            )}
             <span
               className="text-[10px] leading-none"
               style={{ color: active ? "#111827" : "#9ca3af" }}

@@ -31,10 +31,10 @@ const FILTER_PRESETS: FilterPreset[] = [
 
 /* ─── Gradient palettes ──────────────────────────────────── */
 const GRADIENT_PALETTES = [
-  { from: "#A3E635", to: "#15803D", label: "Lime"     },
+  { from: "#A3E635", to: "#15803D", label: "Ember"    },
   { from: "#EF4444", to: "#EC4899", label: "Rose"     },
-  { from: "#C2410C", to: "#7C2D12", label: "Ember"    },
-  { from: "#0F172A", to: "#1D4ED8", label: "Abyss"    },
+  { from: "#C2410C", to: "#7C2D12", label: "Violet"   },
+  { from: "#0F172A", to: "#1D4ED8", label: "Ocean"    },
   { from: "#3B82F6", to: "#8B5CF6", label: "Sapphire" },
   { from: "#F97316", to: "#EAB308", label: "Citrus"   },
   { from: "#06B6D4", to: "#10B981", label: "Mint"     },
@@ -105,7 +105,7 @@ type Tab = "filters" | "adjust" | "color" | "icon";
 
 export function PhotoEditScreen() {
   const navigate = useNavigate();
-  const { user, updateUser } = useAuth();
+  const { user, saveUserPreferences } = useAuth();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
@@ -120,6 +120,8 @@ export function PhotoEditScreen() {
   const [tab, setTab]                   = useState<Tab>(rawPhoto ? "filters" : "color");
   const [saved, setSaved]               = useState(false);
   const [activeCat, setActiveCat]       = useState(0);
+  const [saving, setSaving]             = useState(false);
+  const [saveError, setSaveError]       = useState<string | null>(null);
 
   const cssFilter = useCallback(() => {
     const parts: string[] = [];
@@ -140,15 +142,10 @@ export function PhotoEditScreen() {
         const size = 400;
         canvas.width = size; canvas.height = size;
         ctx.clearRect(0, 0, size, size);
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-        ctx.clip();
         ctx.filter = cssFilter();
         const ratio = Math.max(size / img.width, size / img.height);
         const w = img.width * ratio, h = img.height * ratio;
         ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-        ctx.restore();
         resolve(canvas.toDataURL("image/jpeg", 0.9));
       };
       img.src = rawPhoto;
@@ -168,12 +165,32 @@ export function PhotoEditScreen() {
   };
 
   const handleSave = async () => {
-    if (rawPhoto) {
-      const dataUrl = await getEditedDataUrl();
-      updateUser({ profilePhoto: dataUrl ?? undefined, emoji: selectedEmoji, gradientFrom: selectedGrad.from, gradientTo: selectedGrad.to });
-    } else {
-      updateUser({ profilePhoto: undefined, emoji: selectedEmoji, gradientFrom: selectedGrad.from, gradientTo: selectedGrad.to });
+    if (!user) {
+      navigate("/auth");
+      return;
     }
+
+    setSaving(true);
+    setSaveError(null);
+
+    const profilePhoto = rawPhoto ? await getEditedDataUrl() : undefined;
+    const { error } = await saveUserPreferences({
+      username: user.username,
+      city: user.city ?? "",
+      hideScore: user.hideScore ?? false,
+      showPublicNotes: user.showPublicNotes ?? true,
+      emoji: selectedEmoji,
+      gradientFrom: selectedGrad.from,
+      gradientTo: selectedGrad.to,
+      profilePhoto: profilePhoto ?? undefined,
+    });
+
+    setSaving(false);
+    if (error) {
+      setSaveError(error);
+      return;
+    }
+
     setSaved(true);
     setTimeout(() => navigate("/profile"), 600);
   };
@@ -210,13 +227,14 @@ export function PhotoEditScreen() {
         </button>
         <span className="text-gray-900">Edit Photo</span>
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
+          disabled={saving}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] transition-all ${
             saved ? "bg-emerald-500 text-white" : "bg-gray-900 text-white active:scale-95"
           }`}
         >
           <Check className="w-3.5 h-3.5" />
-          {saved ? "Saved!" : "Save"}
+          {saved ? "Saved!" : saving ? "Saving..." : "Save"}
         </button>
       </div>
 
@@ -289,6 +307,9 @@ export function PhotoEditScreen() {
               </button>
             ))}
           </div>
+          {saveError ? (
+            <p className="mt-2 text-[12px] text-red-500 text-center">{saveError}</p>
+          ) : null}
         </div>
 
         {/* ── Filters tab ── */}

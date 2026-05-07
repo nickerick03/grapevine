@@ -1,84 +1,253 @@
+import { useEffect, useMemo, useRef } from "react";
+import { divIcon, point } from "leaflet";
+import { CircleMarker, MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { useMapEvents } from "react-leaflet";
+
+import { getMatchPinColor } from "./matchColors";
 import { Pub } from "./vibe";
+
+function MapFocus({
+  selectedPub,
+  selectedId,
+  userLocation,
+  focusYRatio,
+}: {
+  selectedPub?: Pub;
+  selectedId?: string;
+  userLocation?: { lat: number; lng: number };
+  focusYRatio: number;
+}) {
+  const map = useMap();
+  const lastFocusedSelectionId = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const clampedFocusY = Math.min(0.9, Math.max(0.1, focusYRatio));
+
+    const flyToWithVerticalFocus = (lat: number, lng: number, minZoom: number, duration: number) => {
+      const zoom = Math.max(map.getZoom(), minZoom);
+
+      if (Math.abs(clampedFocusY - 0.5) < 0.001) {
+        map.flyTo([lat, lng], zoom, { duration });
+        return;
+      }
+
+      const mapSize = map.getSize();
+      const viewportCenter = point(mapSize.x / 2, mapSize.y / 2);
+      const desiredTarget = point(mapSize.x / 2, mapSize.y * clampedFocusY);
+      const delta = desiredTarget.subtract(viewportCenter);
+      const projectedTarget = map.project([lat, lng], zoom).subtract(delta);
+      const adjustedCenter = map.unproject(projectedTarget, zoom);
+
+      map.flyTo(adjustedCenter, zoom, { duration });
+    };
+
+    if (userLocation) {
+      flyToWithVerticalFocus(userLocation.lat, userLocation.lng, 14, 0.8);
+      return;
+    }
+
+    if (selectedPub && selectedId && selectedId !== lastFocusedSelectionId.current) {
+      lastFocusedSelectionId.current = selectedId;
+      flyToWithVerticalFocus(selectedPub.lat, selectedPub.lng, 13, 0.5);
+    }
+  }, [focusYRatio, map, selectedId, selectedPub, userLocation]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      lastFocusedSelectionId.current = undefined;
+    }
+  }, [selectedId]);
+
+  return null;
+}
+
+function MapViewportReporter({
+  onMoveEnd,
+  onBackgroundClick,
+  bottomInsetPx = 0,
+}: {
+  onMoveEnd?: (payload: {
+    lat: number;
+    lng: number;
+    zoom: number;
+    bounds: { north: number; south: number; east: number; west: number };
+  }) => void;
+  onBackgroundClick?: () => void;
+  bottomInsetPx?: number;
+}) {
+  const emitViewport = (targetMap: ReturnType<typeof useMap>) => {
+    if (!onMoveEnd) {
+      return;
+    }
+    const center = targetMap.getCenter();
+    const bounds = targetMap.getBounds();
+    onMoveEnd({
+      lat: center.lat,
+      lng: center.lng,
+      zoom: targetMap.getZoom(),
+      bounds: {
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest(),
+      },
+    });
+  };
+
+  const map = useMapEvents({
+    moveend(event) {
+      emitViewport(event.target);
+    },
+    click() {
+      onBackgroundClick?.();
+    },
+  });
+
+  useEffect(() => {
+    if (!onMoveEnd) {
+      return;
+    }
+
+    // The map viewport height changes when drawer height changes.
+    // Keep Leaflet bounds/center synced with the resized container.
+    map.invalidateSize({ pan: false, animate: false });
+    emitViewport(map);
+  }, [bottomInsetPx, map, onMoveEnd]);
+
+  return null;
+}
+
+function pinIcon(selected: boolean, match: number) {
+  const pinColor = getMatchPinColor(match);
+  const classes = [
+    "map-pin",
+    selected ? "map-pin--active" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return divIcon({
+    className: "",
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    popupAnchor: [0, -12],
+    html: `<div class="${classes}" ${selected ? "" : `style="background:${pinColor};"`}></div>`,
+  });
+}
 
 export function MapView({
   pubs,
   selected,
   onSelect,
   located = false,
+  userLocation,
+  mapCenter,
+  focusYRatio = 0.5,
+  onMapMoveEnd,
+  onMapBackgroundClick,
+  bottomInsetPx = 0,
 }: {
   pubs: Pub[];
   selected?: string;
   onSelect: (id: string) => void;
   located?: boolean;
+  userLocation?: { lat: number; lng: number };
+  mapCenter?: { lat: number; lng: number };
+  focusYRatio?: number;
+  onMapMoveEnd?: (payload: {
+    lat: number;
+    lng: number;
+    zoom: number;
+    bounds: { north: number; south: number; east: number; west: number };
+  }) => void;
+  onMapBackgroundClick?: () => void;
+  bottomInsetPx?: number;
 }) {
-  const minLat = 47.488, maxLat = 47.508, minLng = 19.050, maxLng = 19.070;
-  const pos = (p: Pub) => ({
-    left: `${((p.lng - minLng) / (maxLng - minLng)) * 100}%`,
-    top: `${(1 - (p.lat - minLat) / (maxLat - minLat)) * 100}%`,
-  });
+  const selectedPub = useMemo(() => pubs.find((pub) => pub.id === selected), [pubs, selected]);
 
-  // Fixed "user" position — centre of the map
-  const userPos = { left: "50%", top: "50%" };
+  const center = useMemo<[number, number]>(() => {
+    if (userLocation) {
+      return [userLocation.lat, userLocation.lng];
+    }
+
+    if (mapCenter) {
+      return [mapCenter.lat, mapCenter.lng];
+    }
+
+    if (selectedPub) {
+      return [selectedPub.lat, selectedPub.lng];
+    }
+
+    return [47.4979, 19.0402];
+  }, [mapCenter, selectedPub, userLocation]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden">
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(circle at 30% 20%, #fef3e9 0%, transparent 40%), radial-gradient(circle at 70% 60%, #eaf2fb 0%, transparent 50%), linear-gradient(180deg, #f5f1ea 0%, #ecf1ec 100%)",
-        }}
-      />
-      <svg className="absolute inset-0 w-full h-full opacity-40" preserveAspectRatio="none" viewBox="0 0 100 100">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <line key={`h${i}`} x1="0" y1={i * 8} x2="100" y2={i * 8} stroke="#d8d2c5" strokeWidth="0.15" />
-        ))}
-        {Array.from({ length: 12 }).map((_, i) => (
-          <line key={`v${i}`} x1={i * 8} y1="0" x2={i * 8} y2="100" stroke="#d8d2c5" strokeWidth="0.15" />
-        ))}
-        <path d="M0,55 Q30,40 55,50 T100,45" stroke="#cfe0f5" strokeWidth="2.5" fill="none" />
-        <path d="M20,0 Q25,30 35,55 T45,100" stroke="#dde6d3" strokeWidth="3" fill="none" opacity="0.6" />
-      </svg>
+    <div className="absolute left-0 right-0 top-0 overflow-hidden z-0" style={{ bottom: `${Math.max(0, bottomInsetPx)}px` }}>
+      <MapContainer
+        className="simple-leaflet-map"
+        center={center}
+        zoom={13}
+        style={{ width: "100%", height: "100%", zIndex: 0 }}
+        zoomControl={false}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        />
 
-      {/* User location dot — shown when located */}
-      {located && (
-        <div
-          className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10"
-          style={userPos}
-        >
-          {/* Outer pulse ring */}
-          <div className="absolute inset-0 w-10 h-10 -translate-x-1/4 -translate-y-1/4 rounded-full bg-blue-400/20 animate-ping" />
-          {/* Inner dot */}
-          <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-lg" />
-        </div>
-      )}
+        {pubs.map((pub) => {
+          const isSelected = selected === pub.id;
+          const matchScore = Number.isFinite(pub.match) ? pub.match : 0;
+          return (
+            <Marker
+              key={pub.id}
+              position={[pub.lat, pub.lng]}
+              icon={pinIcon(isSelected, matchScore)}
+              zIndexOffset={isSelected ? 500 : 0}
+              eventHandlers={{
+                click: () => onSelect(pub.id),
+              }}
+            >
+              {isSelected ? (
+                <Tooltip
+                  permanent
+                  direction="top"
+                  offset={[0, -10]}
+                  className="map-pill-tooltip map-pill-tooltip--active"
+                  opacity={1}
+                >
+                  <div className="map-pill map-pill--active">{pub.name}</div>
+                </Tooltip>
+              ) : null}
+            </Marker>
+          );
+        })}
 
-      {pubs.map((p) => {
-        const isSel = selected === p.id;
-        return (
-          <button
-            key={p.id}
-            onClick={() => onSelect(p.id)}
-            className="absolute -translate-x-1/2 -translate-y-full transition-all"
-            style={pos(p)}
-          >
-            <div className={`relative ${isSel ? "scale-110" : ""} transition-transform`}>
-              <div
-                className={`px-2.5 py-1 rounded-full shadow-lg text-[11px] whitespace-nowrap ${
-                  isSel ? "bg-gray-900 text-white" : "bg-white text-gray-800 border border-gray-200"
-                }`}
-              >
-                {p.match}% · {p.name.split(" ")[0]}
-              </div>
-              <div
-                className={`w-3 h-3 rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1 ${
-                  isSel ? "bg-gray-900" : "bg-white border-r border-b border-gray-200"
-                }`}
+        {userLocation ? (
+          <>
+            <CircleMarker
+              center={[userLocation.lat, userLocation.lng]}
+              radius={8}
+              pathOptions={{ color: "#ffffff", weight: 2, fillColor: "#3B82F6", fillOpacity: 1 }}
+            />
+            {located ? (
+              <CircleMarker
+                center={[userLocation.lat, userLocation.lng]}
+                radius={18}
+                pathOptions={{ color: "#60A5FA", weight: 1, fillColor: "#60A5FA", fillOpacity: 0.2 }}
               />
-            </div>
-          </button>
-        );
-      })}
+            ) : null}
+          </>
+        ) : null}
+
+        <MapFocus selectedPub={selectedPub} selectedId={selected} userLocation={userLocation} focusYRatio={focusYRatio} />
+        <MapViewportReporter
+          onMoveEnd={onMapMoveEnd}
+          onBackgroundClick={onMapBackgroundClick}
+          bottomInsetPx={bottomInsetPx}
+        />
+      </MapContainer>
+      <div className="map-warm-overlay pointer-events-none absolute inset-0" />
     </div>
   );
 }

@@ -1,0 +1,5 @@
+-- Grapevine seed file intentionally kept empty for production-like setups.
+-- We removed all sample/demo places and sample ratings.
+--
+-- Add your real places through the app flow (first rating creates a place from OSM)
+-- or by inserting into public.places manually.

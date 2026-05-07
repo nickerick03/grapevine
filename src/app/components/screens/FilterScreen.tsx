@@ -1,23 +1,31 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { X, RotateCcw } from "lucide-react";
 import {
-  BeerStein, Coffee, ForkKnife,
-  ChatCircle, Coins, Heart, Diamond, Lightning, MusicNote,
-  X, ArrowCounterClockwise, Plus, ArrowRight, HandHeart,
+  BeerStein,
+  Coffee,
+  ForkKnife,
+  ChatCircle,
+  CircleNotch,
+  Coins,
+  Heart,
+  Diamond,
+  Lightning,
+  MusicNote,
+  ArrowRight,
+  HandHeart,
+  Plus,
+  X as PhX,
 } from "@phosphor-icons/react";
-import { PUBS, SLIDERS, type SliderKey, type SliderDef } from "../vibe";
+import { SLIDERS, SliderDef, SliderKey } from "../vibe";
+import { filterPubs, getAreasForCity, getCityCenter, haversineKm, radiusValueToKm } from "../filtering";
 import { VibeSlider } from "../VibeSlider";
-import { VENUE_TYPES, PRICE_OPTIONS, type VenueType, useFilters, type CustomPreset } from "../../context/FilterContext";
+import { PRICE_OPTIONS, VENUE_TYPES, useFilters } from "../../context/FilterContext";
 import { CustomPresetModal, getIconComponent } from "../CustomPresetModal";
-
-const CITIES = ["Budapest", "London", "Amsterdam", "Berlin", "Prague", "Vienna"];
-
-function VenueTypeIcon({ type }: { type: VenueType }) {
-  const props = { weight: "duotone" as const, size: 17 };
-  if (type === "Bar") return <BeerStein {...props} />;
-  if (type === "Cafe") return <Coffee {...props} />;
-  return <ForkKnife {...props} />;
-}
+import type { CustomPreset, VenueType } from "../../context/FilterContext";
+import { usePlaces } from "../../context/PlacesContext";
+import { formatDistance, type DistanceUnit, useSettings } from "../../context/SettingsContext";
+import { searchOsmPlaces, toExternalPub } from "@/lib/services/osm";
 
 const PRESET_ITEMS = [
   { key: "talking", label: "Good for talking", icon: <ChatCircle weight="duotone" size={22} /> },
@@ -26,19 +34,46 @@ const PRESET_ITEMS = [
   { key: "hidden",  label: "Hidden gem",       icon: <Diamond weight="duotone" size={22} /> },
   { key: "party",   label: "Party start",      icon: <Lightning weight="duotone" size={22} /> },
   { key: "music",   label: "Live music",       icon: <MusicNote weight="duotone" size={22} /> },
-  { key: "beer",    label: "Beer",             icon: <BeerStein weight="duotone" size={22} /> },
-  { key: "coffee",  label: "Coffee",           icon: <Coffee weight="duotone" size={22} /> },
-  { key: "food",    label: "Food",             icon: <ForkKnife weight="duotone" size={22} /> },
 ];
 
-// Convert 0–100 slider value → km label (∞ at 100)
-function toKm(v: number) {
-  if (v >= 100) return "∞";
-  const km = 0.5 + (v / 100) * 24.5; // 0→0.5km, 100→25km (capped before ∞)
-  return km < 2 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+const CITY_TO_COUNTRY: Record<string, string> = {
+  Budapest: "Hungary",
+  Vienna: "Austria",
+  Berlin: "Germany",
+  Prague: "Czechia",
+  Lisbon: "Portugal",
+};
+
+const EXPLORE_MAP_STATE_KEY = "grapevine.explore.mapState.v1";
+
+type PersistedExploreMapState = {
+  center?: { lat: number; lng: number };
+  bounds?: { north: number; south: number; east: number; west: number } | null;
+  searchAreaRadiusKm?: number | null;
+};
+
+function computeRadiusFromBounds(
+  bounds: { north: number; south: number; east: number; west: number },
+  center: { lat: number; lng: number },
+): number {
+  const northSouth = haversineKm(bounds.north, center.lng, bounds.south, center.lng);
+  const eastWest = haversineKm(center.lat, bounds.west, center.lat, bounds.east);
+  const halfDiagonal = Math.sqrt((northSouth / 2) ** 2 + (eastWest / 2) ** 2);
+  if (!Number.isFinite(halfDiagonal) || halfDiagonal <= 0) {
+    return 6.5;
+  }
+
+  return Math.min(25, Math.max(0.8, halfDiagonal * 1.1));
 }
 
-function SearchAreaMap({ radius }: { radius: number }) {
+// Convert 0–100 slider value → km label (∞ at 100)
+function toKm(v: number, unit: DistanceUnit) {
+  if (v >= 100) return "∞";
+  const km = radiusValueToKm(v);
+  return km < 2 ? formatDistance(km, unit, 1) : formatDistance(Math.round(km), unit, 0);
+}
+
+function SearchAreaMap({ radius, unit }: { radius: number; unit: DistanceUnit }) {
   const infinite = radius >= 100;
   // Scale the circle: 0→5, 99→44, 100=infinite (fill all)
   const r = infinite ? 999 : 5 + (radius / 99) * 40;
@@ -112,7 +147,7 @@ function SearchAreaMap({ radius }: { radius: number }) {
       {/* Label */}
       <div className="absolute bottom-2 right-3 bg-white/90 backdrop-blur-sm rounded-full px-2.5 py-1 text-[11px] border border-blue-100 shadow-sm"
         style={{ color: infinite ? "#7C3AED" : "#1D4ED8" }}>
-        {infinite ? "No limit · all areas" : `${toKm(radius)} radius`}
+        {infinite ? "No limit · all areas" : `${toKm(radius, unit)} radius`}
       </div>
       <div className="absolute top-2 left-3 text-[10px] text-gray-400">Search area</div>
     </div>
@@ -121,8 +156,12 @@ function SearchAreaMap({ radius }: { radius: number }) {
 
 export function FilterScreen() {
   const navigate = useNavigate();
+  const { pubs } = usePlaces();
+  const { distanceUnit, showTouristHeavyBars } = useSettings();
   const {
     values, setValues, enabled, setEnabled,
+    selectedCity, setSelectedCity,
+    selectedArea, setSelectedArea,
     margin, setMargin, marginEnabled, setMarginEnabled,
     searchRadius, setSearchRadius,
     venueTypes, setVenueTypes,
@@ -136,19 +175,191 @@ export function FilterScreen() {
   const [snapEnabled, setSnapEnabled] = useState(enabled);
   const [snapMargin,  setSnapMargin]  = useState(margin);
 
-  const count = useMemo(() => {
-    const effectiveMargin = marginEnabled ? margin : 100;
-    return PUBS.filter((p) =>
-      SLIDERS.every((s) => !enabled[s.key] || Math.abs(p.vibe[s.key] - values[s.key]) <= effectiveMargin)
-    ).length;
-  }, [values, enabled, margin, marginEnabled]);
+  const [count, setCount] = useState(0);
+  const [displayCount, setDisplayCount] = useState(0);
+  const [countLoading, setCountLoading] = useState(false);
+  const displayCountRef = useRef(0);
+  const hasEnabledSliders = useMemo(() => SLIDERS.some((slider) => enabled[slider.key]), [enabled]);
+
+  useEffect(() => {
+    displayCountRef.current = displayCount;
+  }, [displayCount]);
+
+  useEffect(() => {
+    const start = displayCountRef.current;
+    const end = count;
+    if (start === end) {
+      return;
+    }
+
+    const durationMs = 260;
+    const startedAt = performance.now();
+    let frameId = 0;
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const next = Math.round(start + (end - start) * progress);
+      setDisplayCount(next);
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [count]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const persistedMapState = (() => {
+      if (typeof window === "undefined") {
+        return null;
+      }
+
+      try {
+        const raw = window.sessionStorage.getItem(EXPLORE_MAP_STATE_KEY);
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw) as PersistedExploreMapState;
+        if (!parsed.center || !Number.isFinite(parsed.center.lat) || !Number.isFinite(parsed.center.lng)) {
+          return null;
+        }
+        return parsed;
+      } catch {
+        return null;
+      }
+    })();
+
+    const persistedMapCenter = persistedMapState?.center ?? null;
+    const persistedMapBounds = persistedMapState?.bounds ?? null;
+    const center = persistedMapCenter ?? getCityCenter(selectedCity);
+    const selectedCountry = CITY_TO_COUNTRY[selectedCity] ?? "Hungary";
+    const venueTypeAreaMode = !hasEnabledSliders && price == null && venueTypes.length > 0;
+    const viewportRadiusKm = persistedMapBounds ? computeRadiusFromBounds(persistedMapBounds, center) : null;
+    const effectiveRadiusKm = venueTypeAreaMode && viewportRadiusKm != null
+      ? viewportRadiusKm
+      : radiusValueToKm(searchRadius);
+
+    const activeFilters = {
+      values,
+      enabled,
+      margin,
+      marginEnabled,
+      selectedCity,
+      selectedArea,
+      searchRadius,
+      searchRadiusKmOverride: effectiveRadiusKm,
+      venueTypes,
+      price,
+      showTouristHeavyBars,
+      center,
+    };
+
+    const ratedCount = filterPubs(pubs, activeFilters).length;
+
+    const computeCount = async () => {
+      setCountLoading(true);
+      if (hasEnabledSliders) {
+        if (!cancelled) {
+          setCount(ratedCount);
+          setCountLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const radiusKm = Number.isFinite(effectiveRadiusKm) ? Math.min(Math.max(effectiveRadiusKm, 0.5), 25) : 25;
+        const osmResults = await searchOsmPlaces({
+          center,
+          radiusKm,
+          city: selectedCity,
+          country: selectedCountry,
+          signal: controller.signal,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const ratedBySource = new Set(
+          pubs
+            .filter((pub) => pub.sourceProvider === "osm" && pub.sourcePlaceId)
+            .map((pub) => pub.sourcePlaceId as string),
+        );
+
+        const unratedExternalPubs = osmResults
+          .filter((place) => !ratedBySource.has(place.sourcePlaceId))
+          .map(toExternalPub);
+
+        const externalBaseFilters = {
+          ...activeFilters,
+          enabled: {
+            modern: false,
+            lively: false,
+            premium: false,
+            touristy: false,
+            spacious: false,
+          },
+          margin: 100,
+          marginEnabled: false,
+        } as const;
+
+        const externalCount = filterPubs(unratedExternalPubs, externalBaseFilters).length;
+        setCount(ratedCount + externalCount);
+      } catch (error) {
+        if (!cancelled) {
+          const isAbort = error instanceof DOMException && error.name === "AbortError";
+          if (!isAbort) {
+            setCount(ratedCount);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setCountLoading(false);
+        }
+      }
+    };
+
+    void computeCount();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    enabled,
+    hasEnabledSliders,
+    margin,
+    marginEnabled,
+    price,
+    pubs,
+    searchRadius,
+    selectedArea,
+    selectedCity,
+    showTouristHeavyBars,
+    values,
+    venueTypes,
+  ]);
+
+  const areaOptions = useMemo(() => getAreasForCity(pubs, selectedCity), [pubs, selectedCity]);
+  const cityOptions = useMemo(() => {
+    const uniqueCities = Array.from(new Set(pubs.map((pub) => pub.city)));
+    return uniqueCities.length > 0 ? uniqueCities : ["Budapest"];
+  }, [pubs]);
 
   const reset = () => {
     setValues({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
     setEnabled({ modern: false, lively: false, premium: false, touristy: false, spacious: false });
+    setSelectedCity("Budapest");
+    setSelectedArea("All areas");
     setMargin(20);
     setMarginEnabled(true);
     setSearchRadius(25);
+    setVenueTypes(VENUE_TYPES);
+    setPrice(null);
   };
 
   const applyPreset = (key: string) => {
@@ -158,9 +369,6 @@ export function FilterScreen() {
     if (key === "hidden")  { setEnabled({ modern: false, lively: false, premium: false, touristy: true, spacious: false }); setValues({ ...values, touristy: 15 }); }
     if (key === "party")   { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: true }); setValues({ ...values, lively: 90, spacious: 75 }); }
     if (key === "music")   { setEnabled({ modern: true, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, modern: 60, lively: 75 }); }
-    if (key === "beer")    { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 70 }); }
-    if (key === "coffee")  { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 60 }); }
-    if (key === "food")    { setEnabled({ modern: false, lively: true, premium: false, touristy: false, spacious: false }); setValues({ ...values, lively: 50 }); }
   };
 
   const applyCustomPreset = (p: CustomPreset) => {
@@ -168,6 +376,8 @@ export function FilterScreen() {
     setEnabled(p.enabled);
     setMargin(p.margin);
     setMarginEnabled(true);
+    setVenueTypes(p.venueTypes ?? []);
+    setPrice(p.price ?? null);
   };
 
   const openModal = () => {
@@ -187,21 +397,69 @@ export function FilterScreen() {
 
   const RADIUS_SLIDER: SliderDef = {
     key: "touristy" as SliderKey,
-    left: "0.5 km",
+    left: formatDistance(0.5, distanceUnit, 1),
     right: "∞",
     color: "#3B82F6",
     bg: "bg-blue-50",
     track: "from-blue-200 to-blue-500",
   };
 
+  const toggleVenueType = (type: VenueType) => {
+    setVenueTypes(
+      venueTypes.includes(type)
+        ? venueTypes.filter((entry) => entry !== type)
+        : [...venueTypes, type],
+    );
+  };
+
+  const venueTypeLabel = (type: VenueType) => {
+    if (type === "bar") return "Bar";
+    if (type === "cafe") return "Cafe";
+    return "Restaurant";
+  };
+
+  const venueTypeIcon = (type: VenueType) => {
+    if (type === "bar") return <BeerStein weight="duotone" size={17} />;
+    if (type === "cafe") return <Coffee weight="duotone" size={17} />;
+    return <ForkKnife weight="duotone" size={17} />;
+  };
+
+  const handleShowPlaces = () => {
+    if (typeof window !== "undefined") {
+      const venueTypeAreaMode = !hasEnabledSliders && price == null && venueTypes.length > 0;
+      if (venueTypeAreaMode) {
+        try {
+          const raw = window.sessionStorage.getItem(EXPLORE_MAP_STATE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw) as PersistedExploreMapState;
+            const center = parsed.center;
+            const bounds = parsed.bounds ?? null;
+            if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng) && bounds) {
+              const nextState: PersistedExploreMapState = {
+                ...parsed,
+                center,
+                bounds,
+                searchAreaRadiusKm: computeRadiusFromBounds(bounds, center),
+              };
+              window.sessionStorage.setItem(EXPLORE_MAP_STATE_KEY, JSON.stringify(nextState));
+            }
+          }
+        } catch {
+          // no-op: fall back to normal navigation
+        }
+      }
+    }
+    navigate("/");
+  };
+
   return (
     <div className="absolute inset-0 bg-[#fbf8f3] flex flex-col">
       {/* Header */}
-      <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white/70 backdrop-blur">
+      <div className="flex-none flex items-center justify-between px-4 pt-3 pb-2 border-b border-gray-100 bg-white/70 backdrop-blur">
         <button onClick={reset} className="text-[13px] text-gray-600 flex items-center gap-1">
-          <ArrowCounterClockwise className="w-3.5 h-3.5" /> Reset
+          <RotateCcw className="w-3.5 h-3.5" /> Reset
         </button>
-        <div className="text-gray-900">Filters</div>
+        <div className="text-gray-900 text-[16px]">Filters</div>
         <button
           onClick={() => navigate("/")}
           className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center"
@@ -215,25 +473,21 @@ export function FilterScreen() {
         {/* 1. Venue type */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Venue type</div>
-          <div className="flex gap-2">
-            {VENUE_TYPES.map((vt) => {
-              const active = venueTypes.includes(vt);
+          <div className="grid grid-cols-3 gap-2">
+            {VENUE_TYPES.map((type) => {
+              const active = venueTypes.includes(type);
               return (
                 <button
-                  key={vt}
-                  onClick={() =>
-                    setVenueTypes(active ? venueTypes.filter((t) => t !== vt) : [...venueTypes, vt])
-                  }
-                  className={`flex-1 py-2 rounded-xl text-[13px] border transition-colors flex items-center justify-center gap-1.5 ${
+                  key={type}
+                  onClick={() => toggleVenueType(type)}
+                  className={`py-2 rounded-xl text-[13px] border transition-colors flex items-center justify-center gap-1.5 ${
                     active
                       ? "bg-gray-900 text-white border-gray-900"
                       : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
                   }`}
                 >
-                  <span className={active ? "text-white" : "text-gray-400"}>
-                    <VenueTypeIcon type={vt} />
-                  </span>
-                  {vt}
+                  {venueTypeIcon(type)}
+                  {venueTypeLabel(type)}
                 </button>
               );
             })}
@@ -252,15 +506,15 @@ export function FilterScreen() {
                 onChange={(v) => setValues({ ...values, [s.key]: v })}
                 enabled={enabled[s.key]}
                 onToggle={(b) => setEnabled({ ...enabled, [s.key]: b })}
-                showToggle
+                toggleWithDot
               />
             ))}
           </div>
         </div>
 
-        {/* 3. Price */}
+        {/* 3. Price range */}
         <div>
-          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price</div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price range</div>
           <div className="grid grid-cols-4 gap-2">
             {PRICE_OPTIONS.map((opt) => {
               const active = price === opt.value;
@@ -304,7 +558,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 5. Good for */}
+        {/* 3. Good for */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Good for…</div>
           <div className="grid grid-cols-2 gap-2">
@@ -333,7 +587,7 @@ export function FilterScreen() {
                     onClick={(e) => { e.stopPropagation(); removeCustomPreset(cp.id); }}
                     className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                   >
-                    <X size={10} weight="bold" className="text-gray-500" />
+                    <PhX size={10} weight="bold" className="text-gray-500" />
                   </button>
                   <div className="text-gray-600">
                     <Icon weight="duotone" size={22} />
@@ -356,7 +610,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 6. Find similar */}
+        {/* 4. Find similar */}
         <button
           onClick={() => navigate("/similar")}
           className="w-full py-3 rounded-2xl bg-white border border-gray-200 text-gray-800 text-[13px] flex items-center justify-center gap-2 hover:border-gray-300 transition-colors shadow-sm"
@@ -365,20 +619,32 @@ export function FilterScreen() {
           <ArrowRight size={15} className="text-gray-500" />
         </button>
 
-        {/* 7. Location — moved above range selector */}
+        {/* 5. Location — moved above range selector */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Location</div>
           <div className="grid grid-cols-2 gap-2">
-            <select className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-[13px]">
-              {CITIES.map((c) => <option key={c}>{c}</option>)}
+            <select
+              value={selectedCity}
+              onChange={(event) => {
+                const nextCity = event.target.value;
+                setSelectedCity(nextCity);
+                setSelectedArea("All areas");
+              }}
+              className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-[13px]"
+            >
+              {cityOptions.map((city) => <option key={city}>{city}</option>)}
             </select>
-            <select className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-[13px]">
-              {["All areas", "District V", "District VI", "District VII"].map((a) => <option key={a}>{a}</option>)}
+            <select
+              value={selectedArea}
+              onChange={(event) => setSelectedArea(event.target.value)}
+              className="px-3 py-2.5 rounded-xl bg-white border border-gray-200 text-[13px]"
+            >
+              {areaOptions.map((a) => <option key={a}>{a}</option>)}
             </select>
           </div>
         </div>
 
-        {/* 8. Search area radius */}
+        {/* 6. Search area radius */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[12px] text-gray-500 uppercase tracking-wide">Search radius</div>
@@ -386,7 +652,7 @@ export function FilterScreen() {
               className="text-[12px] transition-colors"
               style={{ color: searchRadius >= 100 ? "#7C3AED" : "#2563EB" }}
             >
-              {toKm(searchRadius)}
+              {toKm(searchRadius, distanceUnit)}
             </span>
           </div>
           <VibeSlider
@@ -395,7 +661,7 @@ export function FilterScreen() {
             onChange={(v) => setSearchRadius(v)}
           />
           <div className="mt-3">
-            <SearchAreaMap radius={searchRadius} />
+            <SearchAreaMap radius={searchRadius} unit={distanceUnit} />
           </div>
         </div>
 
@@ -403,7 +669,7 @@ export function FilterScreen() {
         <div className="text-center">
           <button className="inline-flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 transition-colors">
             <HandHeart size={15} weight="duotone" />
-            <span className="underline decoration-dotted underline-offset-2">Support VibeMap with a donation</span>
+            <span className="underline decoration-dotted underline-offset-2">Support Grapevine with a donation</span>
           </button>
         </div>
       </div>
@@ -411,10 +677,12 @@ export function FilterScreen() {
       {/* Apply */}
       <div className="flex-none p-4 border-t border-gray-100 bg-white/90 backdrop-blur">
         <button
-          onClick={() => navigate("/")}
+          onClick={handleShowPlaces}
           className="w-full py-3.5 rounded-2xl bg-gray-900 text-white shadow-md flex items-center justify-center gap-2"
         >
-          Show {count} {count === 1 ? "place" : "places"}
+          {countLoading ? <CircleNotch size={16} weight="bold" className="animate-spin" /> : null}
+          {countLoading ? "Searching " : "Show "}
+          {displayCount} {displayCount === 1 ? "place" : "places"}
         </button>
       </div>
 

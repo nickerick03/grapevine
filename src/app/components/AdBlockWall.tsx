@@ -17,7 +17,7 @@ const STEPS = [
   {
     browser: "Safari",
     icon: "🔵",
-    steps: "Go to Safari → Settings → Extensions → disable your blocker for vibemap.app.",
+    steps: "Go to Safari → Settings → Extensions → disable your blocker for grapevine.app.",
   },
   {
     browser: "uBlock / Adblock Plus",
@@ -90,7 +90,7 @@ export function AdBlockWall() {
             Ad blocker detected
           </div>
           <div className="text-gray-500 text-[13px] mt-2 leading-relaxed">
-            VibeMap is free to use — our only revenue comes from the ads you see while discovering pubs. With an ad blocker active, we can't keep the lights on.
+            Grapevine is free to use — our only revenue comes from the ads you see while discovering pubs. With an ad blocker active, we can't keep the lights on.
           </div>
         </div>
 
@@ -99,7 +99,7 @@ export function AdBlockWall() {
           <PintGlass size={22} weight="duotone" className="text-amber-500 flex-none mt-0.5" />
           <div>
             <div className="text-[13px] text-amber-900 leading-relaxed">
-              Ads help us maintain live pub data, vibe ratings, and new features — all completely free for you. Disabling your blocker on VibeMap takes under 10 seconds.
+              Ads help us maintain live pub data, community ratings, and new features — all completely free for you. Disabling your blocker on Grapevine takes under 10 seconds.
             </div>
           </div>
         </div>

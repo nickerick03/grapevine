@@ -1,75 +1,157 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, X } from "lucide-react";
 import { NavigationArrow, MapPin, Star } from "@phosphor-icons/react";
-import { PUBS, SLIDERS } from "../vibe";
+import { SLIDERS, type Pub } from "../vibe";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { BottomNav } from "../BottomNav";
-import { AppLogo } from "../AppLogo";
 import { useUI } from "../../context/UIContext";
 import { AdUnit } from "../AdUnit";
+import { MapView } from "../MapView";
+import { useFilters } from "../../context/FilterContext";
+import { usePlaces } from "../../context/PlacesContext";
+import { radiusValueToKm, TOURIST_HEAVY_THRESHOLD } from "../filtering";
+import { formatDistance, useSettings } from "../../context/SettingsContext";
+import { formatPubAddress } from "../placeAddress";
+import { getTraitPillSlug } from "@/lib/chips";
 
-// Mock distances sorted closest first
-const MOCK_DISTANCES: Record<string, number> = {
-  "1": 0.3,
-  "6": 0.4,
-  "2": 0.5,
-  "3": 0.7,
-  "5": 0.9,
-  "4": 1.1,
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+type NearbyItem = {
+  pub: Pub;
+  distanceKm: number;
 };
-
-const SORTED_PUBS = [...PUBS].sort(
-  (a, b) => (MOCK_DISTANCES[a.id] ?? 9) - (MOCK_DISTANCES[b.id] ?? 9)
-);
 
 export function NearbyScreen() {
   const navigate = useNavigate();
   const { openRate } = useUI();
+  const { pubs } = usePlaces();
+  const { searchRadius } = useFilters();
+  const { distanceUnit, showTouristHeavyBars } = useSettings();
+
   const [query, setQuery] = useState("");
   const [locating, setLocating] = useState(false);
+  const [selected, setSelected] = useState<string | undefined>(undefined);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
-  const filtered = SORTED_PUBS.filter((p) =>
-    !query || p.name.toLowerCase().includes(query.toLowerCase()) || p.area.toLowerCase().includes(query.toLowerCase())
+  const openPill = (pill: string, event?: { stopPropagation: () => void }) => {
+    event?.stopPropagation();
+    navigate(`/pill/${getTraitPillSlug(pill)}`);
+  };
+
+  const radiusKm = useMemo(() => radiusValueToKm(searchRadius), [searchRadius]);
+  const effectiveRadiusKm = Number.isFinite(radiusKm) ? radiusKm : 30;
+  const effectiveRadiusLabel = effectiveRadiusKm < 10
+    ? formatDistance(effectiveRadiusKm, distanceUnit, 1)
+    : formatDistance(Math.round(effectiveRadiusKm), distanceUnit, 0);
+
+  const nearbyWithDistance = useMemo<NearbyItem[]>(() => {
+    if (!userLocation) {
+      return [];
+    }
+
+    return pubs.map((pub) => ({
+      pub,
+      distanceKm: haversineKm(userLocation.lat, userLocation.lng, pub.lat, pub.lng),
+    }))
+      .filter((item) => (showTouristHeavyBars ? true : item.pub.vibe.touristy < TOURIST_HEAVY_THRESHOLD))
+      .filter((item) => item.distanceKm <= effectiveRadiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+  }, [effectiveRadiusKm, pubs, showTouristHeavyBars, userLocation]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) {
+      return nearbyWithDistance;
+    }
+
+    const q = query.toLowerCase();
+    return nearbyWithDistance.filter(
+      ({ pub }) => pub.name.toLowerCase().includes(q) || pub.area.toLowerCase().includes(q) || pub.city.toLowerCase().includes(q),
+    );
+  }, [nearbyWithDistance, query]);
+
+  const selectedPub = useMemo(
+    () => filtered.find((item) => item.pub.id === selected)?.pub ?? filtered[0]?.pub,
+    [filtered, selected],
   );
 
-  const handleLocate = () => {
+  useEffect(() => {
+    if (filtered.length > 0) {
+      setSelected((current) => current ?? filtered[0].pub.id);
+    } else {
+      setSelected(undefined);
+    }
+  }, [filtered]);
+
+  const locateUser = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not available on this device.");
+      return;
+    }
+
     setLocating(true);
-    setTimeout(() => setLocating(false), 1800);
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+        setLocating(false);
+      },
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Location access is blocked. Allow location to see nearby bars."
+            : "Could not get your location right now. Please try again.";
+        setLocationError(message);
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 7000, maximumAge: 45000 },
+    );
   };
+
+  useEffect(() => {
+    locateUser();
+    // Intentionally run once when the screen opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
-      {/* Sticky header — search + title only */}
-      <div className="flex-none px-4 pt-4 pb-3 bg-white/80 backdrop-blur border-b border-gray-100 z-10">
-        <div className="flex items-center gap-3 mb-3">
-          <AppLogo />
+      <div className="flex-none px-4 pt-3 pb-2 bg-white/80 backdrop-blur border-b border-gray-100 z-10">
+        <div className="flex items-center gap-2 mb-2">
           <div className="flex-1">
-            <div className="text-gray-900 text-[17px]">Bars Near You</div>
+            <div className="text-gray-900 text-[16px]">Bars Near You</div>
           </div>
           <button
-            onClick={handleLocate}
-            className={`w-10 h-10 rounded-full shadow border flex items-center justify-center transition-all duration-300 ${
+            onClick={locateUser}
+            className={`w-9 h-9 rounded-full shadow border flex items-center justify-center transition-all duration-300 ${
               locating
                 ? "bg-blue-500 border-blue-400 text-white"
                 : "bg-white border-gray-200 text-gray-600"
             }`}
           >
-            <NavigationArrow
-              weight={locating ? "fill" : "regular"}
-              size={18}
-              className={locating ? "animate-pulse" : ""}
-            />
+            <NavigationArrow weight={locating ? "fill" : "regular"} size={18} className={locating ? "animate-pulse" : ""} />
           </button>
         </div>
 
-        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search bars…"
+            placeholder="Search nearby bars…"
             className="w-full pl-9 pr-9 py-2 rounded-full bg-gray-100 text-[13px] outline-none focus:bg-white border border-transparent focus:border-gray-200 transition-all"
           />
           {query && (
@@ -83,142 +165,124 @@ export function NearbyScreen() {
         </div>
       </div>
 
-      {/* Single scrollable body — map, ad, and list all scroll together */}
       <div className="flex-1 overflow-y-auto pb-[76px]">
-        {/* User location indicator */}
-        <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-white shadow flex-none" />
-          <span className="text-[12px] text-gray-500">Your location · District VII, Budapest</span>
+        <div className="px-4 pt-3 pb-2">
+          <div className="text-[12px] text-gray-500">
+            {locating && "Finding your location…"}
+            {!locating && locationError}
+            {!locating &&
+              !locationError &&
+              userLocation &&
+              `${filtered.length} ${filtered.length === 1 ? "place" : "places"} within ${effectiveRadiusLabel} radius`}
+            {!locating && !locationError && !userLocation && "Enable location to discover bars around you."}
+          </div>
         </div>
 
-        {/* Mini map strip — scrolls with content */}
-        <div className="mx-4 mb-3 rounded-2xl overflow-hidden h-44 relative border border-gray-100 shadow-sm">
-          {/* Map background */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(circle at 30% 20%, #fef3e9 0%, transparent 40%), radial-gradient(circle at 70% 60%, #eaf2fb 0%, transparent 50%), linear-gradient(180deg, #f5f1ea 0%, #ecf1ec 100%)",
-            }}
+        <div className="mx-4 mb-3 h-48 rounded-2xl overflow-hidden border border-gray-100 shadow-sm relative">
+          <MapView
+            pubs={filtered.map((item) => item.pub)}
+            selected={selectedPub?.id}
+            onSelect={setSelected}
+            located={locating}
+            userLocation={userLocation}
           />
-          <svg className="absolute inset-0 w-full h-full opacity-40" preserveAspectRatio="none" viewBox="0 0 100 40">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <line key={`h${i}`} x1="0" y1={i * 8} x2="100" y2={i * 8} stroke="#d8d2c5" strokeWidth="0.3" />
-            ))}
-            {Array.from({ length: 13 }).map((_, i) => (
-              <line key={`v${i}`} x1={i * 8} y1="0" x2={i * 8} y2="40" stroke="#d8d2c5" strokeWidth="0.3" />
-            ))}
-            <path d="M0,22 Q30,16 55,20 T100,18" stroke="#cfe0f5" strokeWidth="2" fill="none" />
-            <path d="M20,0 Q25,12 35,22 T45,40" stroke="#dde6d3" strokeWidth="2.5" fill="none" opacity="0.6" />
-          </svg>
-
-          {/* Pub pins */}
-          {SORTED_PUBS.slice(0, 5).map((p, i) => (
-            <button
-              key={p.id}
-              onClick={() => navigate(`/detail/${p.id}`)}
-              className="absolute"
-              style={{
-                left: `${15 + i * 16}%`,
-                top: `${25 + (i % 3) * 22}%`,
-                transform: "translate(-50%, -100%)",
-              }}
-            >
-              <div className="px-2 py-0.5 rounded-full bg-white border border-gray-200 shadow text-[9px] text-gray-700 whitespace-nowrap">
-                {p.name.split(" ")[0]}
-              </div>
-            </button>
-          ))}
-
-          {/* User dot */}
-          <div className="absolute" style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }}>
-            <div className="absolute w-6 h-6 rounded-full bg-blue-400/20 animate-ping -translate-x-1/4 -translate-y-1/4" />
-            <div className="w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow-lg" />
-          </div>
-
-          {/* Badge */}
-          <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm rounded-full px-2 py-0.5 text-[10px] text-gray-500 border border-gray-100 shadow-sm">
-            All bars · no filter
-          </div>
         </div>
 
-        {/* Ad — under the map, scrolls with everything */}
         <div className="px-4 mb-3">
-          <AdUnit variant="rectangle" index={1} />
+          <AdUnit variant="rectangle" />
         </div>
 
-        {/* Place list */}
         <div className="px-4 space-y-2">
-          {filtered.length === 0 ? (
+          {!userLocation ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 text-center">
+              <div className="text-gray-900 text-[15px]">Location needed</div>
+              <div className="text-[12px] text-gray-500 mt-1">
+                Turn on location access so we can show nearby places on the map and list.
+              </div>
+              <button
+                onClick={locateUser}
+                className="mt-4 px-4 py-2 rounded-full bg-gray-900 text-white text-[13px]"
+              >
+                Use my location
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="text-2xl mb-3">🍺</div>
-              <div className="text-gray-700">No bars found</div>
+              <div className="text-2xl mb-3">📍</div>
+              <div className="text-gray-700">No bars matched your nearby search</div>
+              <div className="text-[12px] text-gray-500 mt-1">Try a larger radius or clear the search text.</div>
             </div>
           ) : (
-            filtered.map((pub, i) => {
-              const dist = MOCK_DISTANCES[pub.id];
-              // Ad after every 3rd place
-              const showAd = i > 0 && i % 3 === 0;
-              return (
-                <div key={pub.id}>
-                  {showAd && <AdUnit variant="native" index={i} className="mb-2" />}
-                  <button
-                    onClick={() => navigate(`/detail/${pub.id}`)}
-                    className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden flex gap-0"
-                  >
-                    <div className="relative w-24 flex-none">
-                      <ImageWithFallback src={pub.image} alt={pub.name} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/5" />
-                    </div>
-                    <div className="flex-1 p-3 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-gray-900 text-[14px] truncate">{pub.name}</div>
-                          <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
-                            <MapPin size={10} weight="duotone" className="text-blue-400" />
-                            {pub.area}
-                          </div>
-                        </div>
-                        <div className="flex-none text-right">
-                          <div className="text-[12px] text-blue-600">{dist} km</div>
-                          <div className="flex items-center gap-0.5 mt-0.5 justify-end">
-                            <Star size={10} weight="fill" className="text-amber-400" />
-                            <span className="text-[11px] text-gray-500">{pub.ratings}</span>
-                          </div>
+            filtered.map(({ pub, distanceKm }, index) => (
+              <div key={pub.id}>
+                {index > 0 && index % 3 === 0 ? <AdUnit variant="native" className="mb-2" /> : null}
+                <button
+                  onClick={() => navigate(`/detail/${pub.id}`)}
+                  className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden flex gap-0"
+                >
+                  <div className="relative w-24 flex-none">
+                    <ImageWithFallback src={pub.image} alt={pub.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/5" />
+                  </div>
+                  <div className="flex-1 p-3 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-gray-900 text-[14px] truncate">{pub.name}</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1">
+                          <MapPin size={10} weight="duotone" className="text-blue-400" />
+                          <span className="truncate">{formatPubAddress(pub)}</span>
                         </div>
                       </div>
+                      <div className="flex-none text-right">
+                        <div className="text-[12px] text-blue-600">{formatDistance(distanceKm, distanceUnit, 1)}</div>
+                        <div className="flex items-center gap-0.5 mt-0.5 justify-end">
+                          <Star size={10} weight="fill" className="text-amber-400" />
+                          <span className="text-[11px] text-gray-500">{pub.ratings}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                      {/* Vibe bars */}
-                      <div className="flex gap-1 mt-2">
-                        {SLIDERS.map((s) => (
-                          <div key={s.key} className="flex-1 h-1 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="flex gap-1 mt-2">
+                      {SLIDERS.map((slider) => (
+                        <div key={slider.key} className="flex-1 h-1 rounded-full bg-gray-100 overflow-hidden">
+                          {pub.ratings > 0 ? (
                             <div
                               className="h-full rounded-full"
-                              style={{ width: `${pub.vibe[s.key]}%`, background: s.color, opacity: 0.65 }}
+                              style={{ width: `${pub.vibe[slider.key]}%`, background: slider.color, opacity: 0.65 }}
                             />
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Chips */}
-                      <div className="flex gap-1 mt-1.5 flex-wrap">
-                        {pub.chips.slice(0, 2).map((c) => (
-                          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
+                          ) : null}
+                        </div>
+                      ))}
                     </div>
-                  </button>
-                </div>
-              );
-            })
+
+                    <div className="flex gap-1 mt-1.5 flex-wrap">
+                      {pub.chips.slice(0, 2).map((chip) => (
+                        <span
+                          key={chip}
+                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 cursor-pointer hover:bg-gray-200 transition-colors"
+                          onClick={(event) => openPill(chip, event)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openPill(chip);
+                            }
+                          }}
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            ))
           )}
 
-          {/* Rate button */}
           <div className="pt-2 pb-2">
             <button
-              onClick={() => openRate()}
+              onClick={() => openRate(selectedPub?.id)}
               className="w-full py-3 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-[13px] hover:border-gray-400 hover:text-gray-700 transition-colors"
             >
               + Rate a place you've visited
