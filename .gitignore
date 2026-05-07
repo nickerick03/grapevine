@@ -7,3 +7,9 @@ dist
 !.env.example
 .next
 coverage
+.env
+.env.local
+.env.*.local
+node_modules
+dist
+.DS_Store
