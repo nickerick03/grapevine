@@ -1,94 +1,54 @@
-# Grapevine MVP
+# Grapevine
 
-Grapevine is a place-discovery web app where each place gets a community-built vibe profile from five sliders.
+Grapevine is a place-discovery web app that helps people find places by character, not just by star ratings.
 
-This repository keeps the Figma Make visual direction and now connects it to Supabase for real auth, data, ratings, and saved places.
+Instead of only asking whether a place is “good,” Grapevine helps users understand what a place actually feels like: quiet or lively, classic or modern, alternative or conventional, local or touristy, cozy or spacious.
 
-## Stack
+## What it does
 
-- React + Vite + TypeScript
-- Tailwind CSS
-- React Router
-- Leaflet + OpenStreetMap
-- Supabase (Auth + Postgres + RLS)
+Grapevine gives every place a community-built “character sheet” based on user ratings.
 
-## Local setup
+Users can:
 
-1. Install dependencies:
-   - `npm install`
-2. Create local env file:
-   - `cp .env.example .env.local`
-3. Fill env variables:
-   - `VITE_SUPABASE_URL=...`
-   - `VITE_SUPABASE_ANON_KEY=...`
-   - `VITE_SITE_URL=http://localhost:5173`
-4. Start app:
-   - `npm run dev`
+- discover places on a map and list view
+- open detailed place profiles
+- rate places with simple atmosphere sliders
+- add short notes about their experience
+- save places for later
+- find similar places
+- browse tags like `cozy`, `local`, `alternative`, `spacious`, `good for talking`, or `hidden gem`
 
-## Database setup (Supabase)
+## Place profiles
 
-Run these SQL files in Supabase SQL Editor, in order:
+Each place profile can show:
 
-1. `supabase/migrations/20260503_init_grapevine.sql`
-2. `supabase/migrations/20260503_external_osm_first_rating.sql`
-3. `supabase/migrations/20260503_rating_moderation.sql`
-4. `supabase/migrations/20260504_place_venue_type_price_range.sql`
-5. `supabase/migrations/20260504_profile_preferences_and_leaderboard.sql`
+- average slider results
+- generated tags
+- short character summary
+- confidence level based on rating count
+- user notes
+- similar places nearby
 
-This creates:
+The more people rate a place, the more accurate its profile becomes.
 
-- `profiles`
-- `places`
-- `place_ratings`
-- `saved_places`
-- `place_vibe_summary` view
-- RLS policies
-- profile auto-create trigger on signup
-- `updated_at` triggers
+## Contribution system
 
-`supabase/seed.sql` is intentionally empty now (no sample/demo places).
+Grapevine rewards useful contributions through a Grapevine Score.
 
-If you want to wipe existing place content and start fresh, run:
+The score can include:
 
-- `supabase/reset_places_data.sql`
+- reviews submitted
+- notes added
+- helpful votes received
+- first ratings on unrated places
+- city coverage
 
-This clears `places`, `place_ratings`, and `saved_places`, but keeps auth users/profiles.
+The app also supports global and city-specific leaderboards, so users can become recognized contributors in specific cities.
 
-## What is connected
+## Current focus
 
-- Explore loads real `places` from Supabase
-- Place detail shows live summary, notes, and similar places
-- Login/register works with Supabase Auth
-- Edit profile, avatar/photo, and password update are wired to Supabase
-- Leaderboard loads real ranked users from Supabase (and respects hidden scores)
-- Rating submit/update upserts one rating per user/place
-- Saved places are Supabase-backed (no local-only fallback)
-- Nearby uses geolocation + map markers from loaded places
-- Explore can include OSM places without stored profiles, and first rating creates the Supabase place row automatically
+The first version focuses on pubs and bars, but Grapevine is designed to expand later to cafés, restaurants, clubs, galleries, coworking spaces, parks, and other local spots.
 
-## Auth notes
+## Core idea
 
-- Frontend uses only publishable URL + anon key.
-- Do not expose service role key in client code.
-- For production, configure Auth redirect URLs in Supabase:
-  - `http://localhost:5173`
-  - your deployed domain
-
-## RLS summary
-
-- `profiles`: user can read/update own profile; role escalation blocked by trigger.
-- `places`: public can read published; only admins can write.
-- `place_ratings`: public read; authenticated users can CRUD only their own rows.
-- `saved_places`: authenticated users can CRUD only their own rows.
-
-## Useful scripts
-
-- `npm run dev`
-- `npm run typecheck`
-- `npm run build`
-
-## Legal and launch TODO
-
-- Finalize legal pages and GDPR text.
-- Add a certified CMP before enabling AdSense for EEA/UK/Swiss traffic.
-- Keep ad placeholders only until real ad integration is approved.
+> Find the right place for the right mood.
