@@ -17,6 +17,7 @@ type CallbackState = {
 const AUTO_REDIRECT_MS = 1600;
 const RESET_MODE = "reset";
 const AUTH_STEP_TIMEOUT_MS = 9000;
+const CALLBACK_WATCHDOG_MS = 18000;
 
 const EMAIL_OTP_TYPES = new Set<EmailOtpType>([
   "signup",
@@ -115,6 +116,21 @@ export function AuthCallbackScreen() {
 
     let active = true;
     let redirectTimeout: ReturnType<typeof setTimeout> | null = null;
+    const watchdogTimeout = setTimeout(() => {
+      if (!active) {
+        return;
+      }
+      setState((current) => {
+        if (current.status !== "processing") {
+          return current;
+        }
+        return {
+          status: "error",
+          title: "Verification took too long",
+          message: "We could not finish verification in time. Please return to login and request a new link.",
+        };
+      });
+    }, CALLBACK_WATCHDOG_MS);
 
     const run = async () => {
       const search = new URLSearchParams(location.search);
@@ -261,6 +277,7 @@ export function AuthCallbackScreen() {
 
     return () => {
       active = false;
+      clearTimeout(watchdogTimeout);
       if (redirectTimeout) {
         clearTimeout(redirectTimeout);
       }
