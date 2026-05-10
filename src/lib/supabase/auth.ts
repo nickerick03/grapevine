@@ -1,12 +1,13 @@
 import { supabase } from "./client";
+import { getAuthCallbackUrl } from "@/lib/auth/redirect";
 
 export async function signInWithMagicLink(email: string) {
-  const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+  const callbackUrl = getAuthCallbackUrl();
 
   return supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: siteUrl,
+      emailRedirectTo: callbackUrl,
     },
   });
 }

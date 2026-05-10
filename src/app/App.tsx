@@ -7,6 +7,7 @@ import { RateScreen } from "./components/screens/RateScreen";
 import { SimilarScreen } from "./components/screens/SimilarScreen";
 import { ProfileScreen } from "./components/screens/ProfileScreen";
 import { AuthScreen } from "./components/screens/AuthScreen";
+import { ResetPasswordScreen } from "./components/screens/ResetPasswordScreen";
 import { NearbyScreen } from "./components/screens/NearbyScreen";
 import { SettingsScreen } from "./components/screens/SettingsScreen";
 import { SavedScreen } from "./components/screens/SavedScreen";
@@ -20,6 +21,7 @@ import { ProfileRatingsScreen } from "./components/screens/ProfileRatingsScreen"
 import { TraitPillGuideScreen } from "./components/screens/TraitPillGuideScreen";
 import { TraitPillScreen } from "./components/screens/TraitPillScreen";
 import { NotFoundScreen } from "./components/screens/NotFoundScreen";
+import { AuthCallbackScreen } from "./components/screens/AuthCallbackScreen";
 import { PrivacyDataScreen } from "./components/screens/PrivacyDataScreen";
 import {
   ContactInfoScreen,
@@ -53,6 +55,10 @@ const router = createBrowserRouter([
       { path: "profile/ratings", Component: ProfileRatingsScreen },
       { path: "profile/:username", Component: PublicProfileScreen },
       { path: "auth", Component: AuthScreen },
+      { path: "auth/callback", Component: AuthCallbackScreen },
+      { path: "/auth/callback", Component: AuthCallbackScreen },
+      { path: "auth/reset", Component: ResetPasswordScreen },
+      { path: "/auth/reset", Component: ResetPasswordScreen },
       { path: "nearby", Component: NearbyScreen },
       { path: "saved", Component: SavedScreen },
       { path: "settings", Component: SettingsScreen },

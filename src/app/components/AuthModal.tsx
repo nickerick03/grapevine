@@ -1,14 +1,32 @@
-import { useEffect, useState } from "react";
-import { X, Eye, EyeOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Eye, EyeOff, CalendarDays } from "lucide-react";
 import { CircleNotch } from "@phosphor-icons/react";
 import { useAuth } from "../context/AuthContext";
-import { getLatestAllowedBirthDateIso, isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
+import {
+  formatIsoToBirthDateInput,
+  getLatestAllowedBirthDateIso,
+  isAtLeastAge,
+  MINIMUM_REGISTER_AGE,
+  normalizeBirthDateInput,
+  parseBirthDateInputToIso,
+} from "@/lib/auth/ageGate";
 
 export function AuthModal() {
-  const { authModalOpen, closeAuthModal, signInWithPassword, signUpWithPassword, rememberMe, rememberedEmail, setRememberMe } = useAuth();
+  const {
+    authModalOpen,
+    closeAuthModal,
+    signInWithPassword,
+    signUpWithPassword,
+    sendPasswordResetEmail,
+    rememberMe,
+    rememberedEmail,
+    setRememberMe,
+  } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState(rememberedEmail);
@@ -19,9 +37,12 @@ export function AuthModal() {
   const [regEmail, setRegEmail] = useState(rememberedEmail);
   const [regPass, setRegPass] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
-  const [regBirthDate, setRegBirthDate] = useState("");
+  const [regBirthDateIso, setRegBirthDateIso] = useState("");
+  const [regBirthDateInput, setRegBirthDateInput] = useState("");
+  const birthDatePickerRef = useRef<HTMLInputElement | null>(null);
 
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const latestAllowedBirthDate = getLatestAllowedBirthDateIso();
 
   useEffect(() => {
@@ -38,6 +59,7 @@ export function AuthModal() {
     if (!loginEmail || !loginPass) { setError("Please fill in all fields."); return; }
     if (!loginEmail.includes("@")) { setError("Enter a valid email."); return; }
     setError("");
+    setNotice("");
     setSubmitting(true);
     try {
       const result = await signInWithPassword(loginEmail.trim(), loginPass);
@@ -52,26 +74,57 @@ export function AuthModal() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!loginEmail || !loginEmail.includes("@")) {
+      setError("Enter the email address for your account first.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setSendingReset(true);
+    try {
+      const result = await sendPasswordResetEmail(loginEmail.trim());
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setNotice("If an account exists for this email, we sent a password reset link.");
+      setForgotMode(false);
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   const handleRegister = async () => {
-    if (!regName || !regEmail || !regPass || !regConfirm || !regBirthDate) { setError("Please fill in all fields."); return; }
+    if (!regName || !regEmail || !regPass || !regConfirm || !regBirthDateInput) { setError("Please fill in all fields."); return; }
     if (!regEmail.includes("@")) { setError("Enter a valid email."); return; }
+    if (!regBirthDateIso) { setError("Please use yyyy/mm/dd for your date of birth."); return; }
     if (regPass.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (regPass !== regConfirm) { setError("Passwords don't match."); return; }
-    if (!isAtLeastAge(regBirthDate, MINIMUM_REGISTER_AGE)) {
+    if (!isAtLeastAge(regBirthDateIso, MINIMUM_REGISTER_AGE)) {
       setError(`You must be at least ${MINIMUM_REGISTER_AGE} years old to register.`);
       return;
     }
     setError("");
+    setNotice("");
     setSubmitting(true);
     try {
-      const result = await signUpWithPassword(regName.trim(), regEmail.trim(), regPass, regBirthDate);
+      const result = await signUpWithPassword(regName.trim(), regEmail.trim(), regPass, regBirthDateIso);
       if (result.error) {
         setError(result.error);
         return;
       }
 
       if (result.requiresEmailConfirmation) {
-        setError("Account created. Please verify your email, then sign in.");
+        setNotice("Your account is ready. Please verify your email to activate it, then come back and log in.");
+        setLoginEmail(regEmail.trim());
+        setLoginPass("");
+        setRegPass("");
+        setRegConfirm("");
+        setRegBirthDateInput("");
+        setRegBirthDateIso("");
+        setTab("login");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sign-up failed. Please try again.";
@@ -79,6 +132,36 @@ export function AuthModal() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleBirthDateInputChange = (nextValue: string) => {
+    const normalizedInput = normalizeBirthDateInput(nextValue);
+    setRegBirthDateInput(normalizedInput);
+    setError("");
+
+    const parsedIso = parseBirthDateInputToIso(normalizedInput);
+    setRegBirthDateIso(parsedIso ?? "");
+  };
+
+  const handleBirthDateCalendarChange = (nextIsoValue: string) => {
+    setRegBirthDateIso(nextIsoValue);
+    setRegBirthDateInput(formatIsoToBirthDateInput(nextIsoValue));
+    setError("");
+  };
+
+  const openBirthDatePicker = () => {
+    const pickerInput = birthDatePickerRef.current;
+    if (!pickerInput) {
+      return;
+    }
+
+    const maybeShowPicker = pickerInput as HTMLInputElement & { showPicker?: () => void };
+    if (typeof maybeShowPicker.showPicker === "function") {
+      maybeShowPicker.showPicker();
+      return;
+    }
+
+    pickerInput.click();
   };
 
   if (!authModalOpen) return null;
@@ -137,7 +220,7 @@ export function AuthModal() {
           {(["login", "register"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => { setTab(t); setError(""); }}
+              onClick={() => { setTab(t); setError(""); setNotice(""); setForgotMode(false); }}
               className={`flex-1 py-2 rounded-lg text-[13px] transition-all ${
                 tab === t
                   ? "bg-white shadow text-gray-900"
@@ -195,10 +278,48 @@ export function AuthModal() {
                   />
                 </button>
               </div>
-              <button className="text-[12px] text-gray-500 hover:text-gray-700 text-right w-full">
+              <button
+                onClick={() => {
+                  setForgotMode((current) => !current);
+                  setError("");
+                  setNotice("");
+                }}
+                className="text-[12px] text-gray-500 hover:text-gray-700 text-right w-full"
+              >
                 Forgot password?
               </button>
-              {error && <div className="text-[12px] text-red-500 px-1">{error}</div>}
+              {forgotMode ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
+                  <div className="text-[12px] text-amber-900 leading-5">
+                    We will send a reset link to <span className="font-medium">{loginEmail || "your email address"}</span>.
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={handleForgotPassword}
+                      disabled={sendingReset}
+                      className="flex-1 rounded-xl bg-gray-900 px-3 py-2 text-[12px] text-white disabled:opacity-70"
+                    >
+                      {sendingReset ? "Sending..." : "Send reset email"}
+                    </button>
+                    <button
+                      onClick={() => setForgotMode(false)}
+                      className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-[12px] text-amber-900"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-5 text-red-700">
+                  {error}
+                </div>
+              ) : null}
+              {notice ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] leading-5 text-emerald-800">
+                  {notice}
+                </div>
+              ) : null}
               <button
                 onClick={handleLogin}
                 disabled={submitting}
@@ -220,19 +341,47 @@ export function AuthModal() {
                 Join to rate pubs and save your favorites.
               </div>
               <input
-                type="text"
-                placeholder="Username"
-                value={regName}
-                onChange={(e) => setRegName(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
-              />
-              <input
                 type="email"
                 placeholder="Email address"
                 value={regEmail}
                 onChange={(e) => setRegEmail(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
               />
+              <input
+                type="text"
+                placeholder="Username"
+                value={regName}
+                onChange={(e) => setRegName(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
+              />
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Date of birth (yyyy/mm/dd)"
+                  value={regBirthDateInput}
+                  onChange={(e) => handleBirthDateInputChange(e.target.value)}
+                  className="w-full px-4 py-3 pr-11 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={openBirthDatePicker}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  aria-label="Pick birth date from calendar"
+                >
+                  <CalendarDays className="w-4 h-4" />
+                </button>
+                <input
+                  ref={birthDatePickerRef}
+                  type="date"
+                  value={regBirthDateIso}
+                  max={latestAllowedBirthDate}
+                  onChange={(e) => handleBirthDateCalendarChange(e.target.value)}
+                  tabIndex={-1}
+                  className="absolute h-0 w-0 opacity-0 pointer-events-none"
+                  aria-hidden="true"
+                />
+              </div>
               <div className="relative">
                 <input
                   type={showPass ? "text" : "password"}
@@ -249,23 +398,22 @@ export function AuthModal() {
                 </button>
               </div>
               <input
-                type="date"
-                value={regBirthDate}
-                onChange={(e) => setRegBirthDate(e.target.value)}
-                max={latestAllowedBirthDate}
-                className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
-              />
-              <input
                 type="password"
-                placeholder="Confirm password"
+                placeholder="Re-enter password"
                 value={regConfirm}
                 onChange={(e) => setRegConfirm(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
               />
-              <div className="text-[11px] text-gray-500 px-1">
-                You must be at least {MINIMUM_REGISTER_AGE} years old.
-              </div>
-              {error && <div className="text-[12px] text-red-500 px-1">{error}</div>}
+              {error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-5 text-red-700">
+                  {error}
+                </div>
+              ) : null}
+              {notice ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] leading-5 text-emerald-800">
+                  {notice}
+                </div>
+              ) : null}
               <button
                 onClick={handleRegister}
                 disabled={submitting}

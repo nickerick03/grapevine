@@ -9,6 +9,7 @@ import {
   type ProfilePreferencesInput,
 } from "@/lib/services/profile";
 import { isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
+import { getAuthCallbackUrl, getPasswordResetCallbackUrl } from "@/lib/auth/redirect";
 import { supabase } from "@/lib/supabase/client";
 import type { ProfileRecord } from "@/types/database";
 
@@ -57,6 +58,7 @@ interface AuthContextType {
     password: string,
     birthDate: string,
   ) => Promise<{ error: string | null; requiresEmailConfirmation: boolean }>;
+  sendPasswordResetEmail: (email: string) => Promise<{ error: string | null }>;
   sendMagicLink: (email: string) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   authModalOpen: boolean;
@@ -81,6 +83,7 @@ const AuthContext = createContext<AuthContextType>({
   changePassword: async () => ({ error: "Auth provider not initialized." }),
   signInWithPassword: async () => ({ error: "Auth provider not initialized." }),
   signUpWithPassword: async () => ({ error: "Auth provider not initialized.", requiresEmailConfirmation: false }),
+  sendPasswordResetEmail: async () => ({ error: "Auth provider not initialized." }),
   sendMagicLink: async () => ({ error: "Auth provider not initialized." }),
   logout: async () => {},
   authModalOpen: false,
@@ -139,6 +142,33 @@ function displayNameFromEmail(email: string): string {
 function usernameFromName(name: string): string {
   const normalized = name.toLowerCase().trim().replace(/\s+/g, "_").replace(/[^a-z0-9_\.]/g, "");
   return normalized || "grapevine_user";
+}
+
+function normalizeAuthErrorMessage(message: string): string {
+  const raw = message?.trim();
+  if (!raw) {
+    return "Authentication failed. Please try again.";
+  }
+
+  const lower = raw.toLowerCase();
+
+  if (lower.includes("email not confirmed") || lower.includes("email not verified")) {
+    return "Please verify your email first. Open the confirmation link we sent, then try logging in again.";
+  }
+
+  if (lower.includes("invalid login credentials")) {
+    return "Email or password is not correct.";
+  }
+
+  if (lower.includes("otp expired") || lower.includes("token has expired") || lower.includes("expired")) {
+    return "This sign-in link has expired. Please request a new one.";
+  }
+
+  if (lower.includes("token has been used") || lower.includes("already used")) {
+    return "This verification link was already used. Please request a new one.";
+  }
+
+  return raw;
 }
 
 function toAuthUser(supabaseUser: SupabaseUser, profile: ProfileRecord | null): AuthUser {
@@ -516,7 +546,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (error) {
-        return { error: error.message };
+        return { error: normalizeAuthErrorMessage(error.message) };
+      }
+
+      if (data.user && !data.user.email_confirmed_at) {
+        await supabase.auth.signOut();
+        return {
+          error: "Please verify your email first. Open the confirmation link we sent, then try again.",
+        };
       }
 
       persistRememberPreference(rememberMe);
@@ -548,7 +585,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUpWithPassword = async (name: string, email: string, password: string, birthDate: string) => {
     try {
-      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+      const callbackUrl = getAuthCallbackUrl();
       const emoji = randomEmoji();
       const username = usernameFromName(name);
       const normalizedBirthDate = birthDate.trim();
@@ -565,7 +602,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email,
           password,
           options: {
-            emailRedirectTo: siteUrl,
+            emailRedirectTo: callbackUrl,
             data: {
               full_name: name,
               username,
@@ -582,10 +619,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (error) {
-        return { error: error.message, requiresEmailConfirmation: false };
+        return { error: normalizeAuthErrorMessage(error.message), requiresEmailConfirmation: false };
       }
 
       const requiresEmailConfirmation = !data.session;
+
+      if (data.user && data.session && !data.user.email_confirmed_at) {
+        await supabase.auth.signOut();
+        return {
+          error: null,
+          requiresEmailConfirmation: true,
+        };
+      }
 
       if (data.user && data.session) {
         persistRememberPreference(rememberMe);
@@ -615,24 +660,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sendMagicLink = async (email: string) => {
     try {
-      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+      const callbackUrl = getAuthCallbackUrl();
       const { error } = await withAuthTimeout(
         supabase.auth.signInWithOtp({
           email,
           options: {
-            emailRedirectTo: siteUrl,
+            emailRedirectTo: callbackUrl,
           },
         }),
         "Magic-link request is taking too long. Please try again.",
       );
 
       if (error) {
-        return { error: error.message };
+        return { error: normalizeAuthErrorMessage(error.message) };
       }
 
       return { error: null };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Magic-link sign-in failed. Please try again.";
+      return { error: message };
+    }
+  };
+
+  const sendPasswordResetEmail = async (email: string) => {
+    try {
+      const callbackUrl = getPasswordResetCallbackUrl();
+      const { error } = await withAuthTimeout(
+        supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: callbackUrl,
+        }),
+        "Password reset request is taking too long. Please try again.",
+      );
+
+      if (error) {
+        return { error: normalizeAuthErrorMessage(error.message) };
+      }
+
+      return { error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not send password reset email.";
       return { error: message };
     }
   };
@@ -688,6 +754,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       changePassword,
       signInWithPassword,
       signUpWithPassword,
+      sendPasswordResetEmail,
       sendMagicLink,
       logout,
       authModalOpen,

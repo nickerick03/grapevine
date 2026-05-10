@@ -134,6 +134,28 @@ function removeExternalDuplicates(external: Pub[], rated: Pub[]): Pub[] {
   return result;
 }
 
+function dedupePubsById(items: Pub[]): Pub[] {
+  const byId = new Map<string, Pub>();
+
+  for (const item of items) {
+    const existing = byId.get(item.id);
+    if (!existing) {
+      byId.set(item.id, item);
+      continue;
+    }
+
+    const shouldReplace =
+      item.ratings > existing.ratings
+      || (item.ratings === existing.ratings && item.match > existing.match);
+
+    if (shouldReplace) {
+      byId.set(item.id, item);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
 function computeRadiusFromBounds(
   bounds: { north: number; south: number; east: number; west: number },
   center: { lat: number; lng: number },
@@ -516,7 +538,7 @@ export function ExploreScreen() {
         }
       }
 
-      const searched = Array.from(unique.values()).map((pub) => {
+      const searched = dedupePubsById(Array.from(unique.values()).map((pub) => {
         const match = calculatePubMatchPercent(pub, activeFilters);
         const perfectMatch = isPerfectPubMatch(pub, activeFilters);
         return {
@@ -524,7 +546,7 @@ export function ExploreScreen() {
           match,
           perfectMatch,
         };
-      });
+      }));
 
       if (effectiveHasSliderFilters) {
         searched.sort((a, b) => b.match - a.match);
@@ -546,7 +568,7 @@ export function ExploreScreen() {
         })
       : [];
 
-    const filteredPubs = [...filteredRatedPubs, ...filteredExternalPubs];
+    const filteredPubs = dedupePubsById([...filteredRatedPubs, ...filteredExternalPubs]);
 
     if (effectiveHasSliderFilters) {
       filteredPubs.sort((a, b) => b.match - a.match);
@@ -783,7 +805,7 @@ export function ExploreScreen() {
     openRate(pub.id);
   };
 
-  const openPlaceDetails = (pub: Pub) => {
+  const openPlaceDetails = useCallback((pub: Pub) => {
     if (pub.isExternalCandidate) {
       const source = pub.sourcePlaceId ? externalLookup.get(pub.sourcePlaceId) : undefined;
       navigate(`/detail/${pub.id}`, {
@@ -809,7 +831,33 @@ export function ExploreScreen() {
     }
 
     navigate(`/detail/${pub.id}`);
-  };
+  }, [externalLookup, navigate, selectedCountry]);
+
+  const openPlaceDetailsFromMapResult = useCallback((pubId: string) => {
+    const pub = pubsInCurrentMapView.find((item) => item.id === pubId) ?? filtered.find((item) => item.id === pubId);
+    if (!pub) {
+      return;
+    }
+
+    setManualMapDeselected(false);
+    if (selected === pubId) {
+      openPlaceDetails(pub);
+      return;
+    }
+
+    setSelected(pubId);
+  }, [filtered, openPlaceDetails, pubsInCurrentMapView, selected]);
+
+  const openPlaceDetailsFromListResult = useCallback((pubId: string) => {
+    const pub = filtered.find((item) => item.id === pubId);
+    if (!pub) {
+      return;
+    }
+
+    setManualMapDeselected(false);
+    setSelected(pubId);
+    openPlaceDetails(pub);
+  }, [filtered, openPlaceDetails]);
 
   // Heights: BottomNav = 60px, bottom sheet max = 35%
   // Floating buttons sit 12px above sheet top at max expansion
@@ -1048,7 +1096,7 @@ export function ExploreScreen() {
                 {selectedDrawerPub && (
                   <PubCard
                     pub={selectedDrawerPub}
-                    onClick={() => openPlaceDetails(selectedDrawerPub)}
+                    onClick={() => openPlaceDetailsFromMapResult(selectedDrawerPub.id)}
                     selected
                     showMatchPill={hasEnabledSliders}
                   />
@@ -1059,7 +1107,7 @@ export function ExploreScreen() {
                     <PubCard
                       key={p.id}
                       pub={p}
-                      onClick={() => openPlaceDetails(p)}
+                      onClick={() => openPlaceDetailsFromMapResult(p.id)}
                       compact
                       showMatchPill={hasEnabledSliders}
                     />
@@ -1113,7 +1161,7 @@ export function ExploreScreen() {
               return (
                 <div key={p.id}>
                   {showSearchAd && <AdUnit variant="native" className="mb-2" />}
-                  <PubCard pub={p} onClick={() => openPlaceDetails(p)} showMatchPill={hasEnabledSliders} />
+                  <PubCard pub={p} onClick={() => openPlaceDetailsFromListResult(p.id)} showMatchPill={hasEnabledSliders} />
                   {showListAd && <AdUnit variant="native" className="mt-2" />}
                 </div>
               );
