@@ -1,3 +1,8 @@
+import {
+  FunctionsFetchError,
+  FunctionsHttpError,
+  FunctionsRelayError,
+} from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type {
   AdminDashboardTotals,
@@ -220,10 +225,79 @@ export async function deleteAdminBugReport(id: string): Promise<void> {
 }
 
 export async function hardDeleteUser(targetUserId: string): Promise<void> {
+  const { data: authData, error: authError } = await supabase.auth.getSession();
+  if (authError) {
+    throw new Error("Could not verify your admin session. Please log in again and retry.");
+  }
+
+  const accessToken = authData.session?.access_token;
+  if (!accessToken) {
+    throw new Error("Your admin session expired. Please log in again.");
+  }
+
   const { error } = await supabase.functions.invoke("admin-delete-user", {
     body: { targetUserId },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
-  if (error) {
-    throw new Error(toErrorMessage(error));
+
+  if (!error) {
+    return;
   }
+
+  if (error instanceof FunctionsHttpError) {
+    let status = 0;
+    let payloadMessage = "";
+    try {
+      status = error.context.status;
+      const payload = await error.context.clone().json() as { error?: unknown; message?: unknown; code?: unknown };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        payloadMessage = payload.error.trim();
+      } else if (typeof payload.message === "string" && payload.message.trim()) {
+        payloadMessage = payload.message.trim();
+      } else if (typeof payload.code === "string" && payload.code.trim()) {
+        payloadMessage = payload.code.trim();
+      }
+    } catch {
+      try {
+        const text = await error.context.clone().text();
+        if (text.trim()) {
+          payloadMessage = text.trim();
+        }
+      } catch {
+        // no-op
+      }
+    }
+
+    if (status === 401) {
+      throw new Error(payloadMessage || "Authorization failed. Please log in again.");
+    }
+
+    if (status === 403) {
+      throw new Error(payloadMessage || "Only super-admin users can hard delete accounts.");
+    }
+
+    if (status === 404) {
+      throw new Error("Delete service is not deployed (admin-delete-user). Please deploy the Edge Function first.");
+    }
+
+    if (status === 400 || status === 422) {
+      throw new Error(payloadMessage || "Could not delete this user. Check freeze state and request payload.");
+    }
+
+    throw new Error(payloadMessage || `Hard delete failed with status ${status || "unknown"}.`);
+  }
+
+  if (error instanceof FunctionsRelayError) {
+    throw new Error("Delete request could not reach Supabase relay. Please retry shortly.");
+  }
+
+  if (error instanceof FunctionsFetchError) {
+    throw new Error(
+      "Could not reach the delete service. Check function deployment, function name, CORS, and network connectivity.",
+    );
+  }
+
+  throw new Error(toErrorMessage(error));
 }

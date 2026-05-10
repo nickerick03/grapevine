@@ -24,6 +24,7 @@ export function AdminUsersScreen() {
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activity, setActivity] = useState<AdminUserActivityRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const selectedUser = useMemo(
     () => users.find((entry) => entry.user_id === selectedUserId) ?? null,
@@ -76,6 +77,7 @@ export function AdminUsersScreen() {
 
   const runAction = async (key: string, action: () => Promise<void>) => {
     setBusy(key);
+    setActionError(null);
     try {
       await action();
       await loadUsers(query);
@@ -83,7 +85,7 @@ export function AdminUsersScreen() {
         await loadActivity(selectedUserId);
       }
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed.");
+      setActionError(err instanceof Error ? err.message : "Action failed.");
     } finally {
       setBusy(null);
     }
@@ -152,6 +154,11 @@ export function AdminUsersScreen() {
 
       <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
         <div className="text-[12px] text-gray-500 mb-2">Selected user controls</div>
+        {actionError ? (
+          <div className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
+            {actionError}
+          </div>
+        ) : null}
         {!selectedUser ? (
           <div className="text-[13px] text-gray-500">Select a user first.</div>
         ) : (

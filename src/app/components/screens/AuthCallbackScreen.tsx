@@ -16,6 +16,7 @@ type CallbackState = {
 
 const AUTO_REDIRECT_MS = 1600;
 const RESET_MODE = "reset";
+const AUTH_STEP_TIMEOUT_MS = 9000;
 
 const EMAIL_OTP_TYPES = new Set<EmailOtpType>([
   "signup",
@@ -81,6 +82,21 @@ function wait(ms: number): Promise<void> {
   });
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMessage: string, timeoutMs = AUTH_STEP_TIMEOUT_MS): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export function AuthCallbackScreen() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -124,9 +140,40 @@ export function AuthCallbackScreen() {
         const code = search.get("code");
         const tokenHash = search.get("token_hash");
         const type = search.get("type");
+        const hashAccessToken = hash.get("access_token");
+        const hashRefreshToken = hash.get("refresh_token");
+        const hasAuthPayload = Boolean(code || tokenHash || hashAccessToken || hashRefreshToken);
+
+        if (!hasAuthPayload) {
+          const { data: quickSession, error: quickSessionError } = await withTimeout(
+            supabase.auth.getSession(),
+            "We couldn't verify this link in time.",
+          );
+
+          if (quickSessionError) {
+            throw quickSessionError;
+          }
+
+          if (!quickSession.session?.user) {
+            if (!active) {
+              return;
+            }
+            setState({
+              status: "error",
+              title: isRecoveryFlow ? "Reset link opened" : "Email verified",
+              message: isRecoveryFlow
+                ? "The reset link opened without a valid reset session. Please request a new reset email."
+                : "Your email is confirmed, but we couldn't create a login session from this link. Please return to the app and log in.",
+            });
+            return;
+          }
+        }
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          const { error } = await withTimeout(
+            supabase.auth.exchangeCodeForSession(code),
+            "The verification link timed out.",
+          );
           if (error) {
             const message = error.message?.toLowerCase() ?? "";
             const maybeAlreadyHandled =
@@ -138,10 +185,13 @@ export function AuthCallbackScreen() {
             }
           }
         } else if (tokenHash && type && EMAIL_OTP_TYPES.has(type as EmailOtpType)) {
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: type as EmailOtpType,
-          });
+          const { error } = await withTimeout(
+            supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: type as EmailOtpType,
+            }),
+            "The verification link timed out.",
+          );
           if (error) {
             throw error;
           }
@@ -150,7 +200,10 @@ export function AuthCallbackScreen() {
         // detectSessionInUrl can resolve asynchronously in the browser, so retry briefly.
         let sessionUserFound = false;
         for (let attempt = 0; attempt < 8; attempt += 1) {
-          const { data, error } = await supabase.auth.getSession();
+          const { data, error } = await withTimeout(
+            supabase.auth.getSession(),
+            "Session verification timed out.",
+          );
           if (error) {
             throw error;
           }
