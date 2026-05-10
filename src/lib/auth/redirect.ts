@@ -26,8 +26,21 @@ function shouldForceHttps(hostname: string): boolean {
 }
 
 export function getSiteUrl(): string {
+  if (typeof window !== "undefined") {
+    const browserOrigin = trimTrailingSlash(window.location.origin);
+    try {
+      const parsedBrowserOrigin = new URL(browserOrigin);
+      if (parsedBrowserOrigin.protocol === "http:" && shouldForceHttps(parsedBrowserOrigin.hostname)) {
+        parsedBrowserOrigin.protocol = "https:";
+      }
+      return trimTrailingSlash(parsedBrowserOrigin.toString());
+    } catch {
+      // fall back to env/fallback parsing below
+    }
+  }
+
   const envUrl = import.meta.env.VITE_SITE_URL?.trim();
-  const fallback = typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
+  const fallback = "http://localhost:5173";
   const candidate = trimTrailingSlash(withProtocolIfMissing(envUrl || fallback));
 
   try {
