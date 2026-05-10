@@ -5,7 +5,6 @@ import type { LegalDocumentRecord } from "@/lib/services/legal";
 export interface ProfileRecord {
   id: string;
   username: string | null;
-  display_name: string | null;
   avatar_url: string | null;
   birth_date: string | null;
   city: string | null;

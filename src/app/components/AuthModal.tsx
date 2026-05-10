@@ -10,6 +10,7 @@ import {
   normalizeBirthDateInput,
   parseBirthDateInputToIso,
 } from "@/lib/auth/ageGate";
+import { normalizeUsernameInput, validateUsername } from "@/lib/auth/username";
 
 export function AuthModal() {
   const {
@@ -33,7 +34,7 @@ export function AuthModal() {
   const [loginPass, setLoginPass] = useState("");
 
   // Register form state
-  const [regName, setRegName] = useState("");
+  const [regUsername, setRegUsername] = useState("");
   const [regEmail, setRegEmail] = useState(rememberedEmail);
   const [regPass, setRegPass] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
@@ -97,9 +98,12 @@ export function AuthModal() {
   };
 
   const handleRegister = async () => {
-    if (!regName || !regEmail || !regPass || !regConfirm || !regBirthDateInput) { setError("Please fill in all fields."); return; }
+    if (!regUsername || !regEmail || !regPass || !regConfirm || !regBirthDateInput) { setError("Please fill in all fields."); return; }
     if (!regEmail.includes("@")) { setError("Enter a valid email."); return; }
     if (!regBirthDateIso) { setError("Please use yyyy/mm/dd for your date of birth."); return; }
+    const normalizedUsername = normalizeUsernameInput(regUsername);
+    const usernameError = validateUsername(normalizedUsername);
+    if (usernameError) { setError(usernameError); return; }
     if (regPass.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (regPass !== regConfirm) { setError("Passwords don't match."); return; }
     if (!isAtLeastAge(regBirthDateIso, MINIMUM_REGISTER_AGE)) {
@@ -110,7 +114,7 @@ export function AuthModal() {
     setNotice("");
     setSubmitting(true);
     try {
-      const result = await signUpWithPassword(regName.trim(), regEmail.trim(), regPass, regBirthDateIso);
+      const result = await signUpWithPassword(normalizedUsername, regEmail.trim(), regPass, regBirthDateIso);
       if (result.error) {
         setError(result.error);
         return;
@@ -350,8 +354,8 @@ export function AuthModal() {
               <input
                 type="text"
                 placeholder="Username"
-                value={regName}
-                onChange={(e) => setRegName(e.target.value)}
+                value={regUsername}
+                onChange={(e) => setRegUsername(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 text-[14px] outline-none focus:border-gray-400 transition-colors"
               />
               <div className="relative">

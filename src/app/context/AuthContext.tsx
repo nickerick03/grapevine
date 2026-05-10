@@ -9,6 +9,7 @@ import {
   type ProfilePreferencesInput,
 } from "@/lib/services/profile";
 import { isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
+import { normalizeUsernameInput, validateUsername } from "@/lib/auth/username";
 import { getAuthCallbackUrl, getPasswordResetCallbackUrl } from "@/lib/auth/redirect";
 import { supabase } from "@/lib/supabase/client";
 import type { ProfileRecord } from "@/types/database";
@@ -53,7 +54,7 @@ interface AuthContextType {
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ error: string | null }>;
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
   signUpWithPassword: (
-    name: string,
+    username: string,
     email: string,
     password: string,
     birthDate: string,
@@ -139,11 +140,6 @@ function displayNameFromEmail(email: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function usernameFromName(name: string): string {
-  const normalized = name.toLowerCase().trim().replace(/\s+/g, "_").replace(/[^a-z0-9_\.]/g, "");
-  return normalized || "grapevine_user";
-}
-
 function normalizeAuthErrorMessage(message: string): string {
   const raw = message?.trim();
   if (!raw) {
@@ -173,18 +169,23 @@ function normalizeAuthErrorMessage(message: string): string {
 
 function toAuthUser(supabaseUser: SupabaseUser, profile: ProfileRecord | null): AuthUser {
   const email = supabaseUser.email ?? "unknown@grapevine.local";
+  const metadataUsername = typeof supabaseUser.user_metadata?.username === "string"
+    ? normalizeUsernameInput(supabaseUser.user_metadata.username)
+    : null;
+  const resolvedUsername = normalizeUsernameInput(
+    profile?.username
+    ?? metadataUsername
+    ?? displayNameFromEmail(email).replace(/\s+/g, "_").toLowerCase(),
+  ) || "grapevine_user";
+
   const name =
-    profile?.display_name ??
+    resolvedUsername ??
     (typeof supabaseUser.user_metadata?.full_name === "string" ? supabaseUser.user_metadata.full_name : undefined) ??
     displayNameFromEmail(email);
   const palette = buildAvatarPalette(supabaseUser.id || email);
 
   const metadataEmoji = typeof supabaseUser.user_metadata?.emoji === "string"
     ? supabaseUser.user_metadata.emoji
-    : null;
-
-  const metadataUsername = typeof supabaseUser.user_metadata?.username === "string"
-    ? supabaseUser.user_metadata.username
     : null;
 
   const metadataPhoto = typeof supabaseUser.user_metadata?.profile_photo === "string"
@@ -220,7 +221,7 @@ function toAuthUser(supabaseUser: SupabaseUser, profile: ProfileRecord | null): 
   return {
     id: supabaseUser.id,
     name,
-    username: profile?.username ?? metadataUsername ?? usernameFromName(name),
+    username: resolvedUsername,
     email,
     emoji: profile?.emoji ?? metadataEmoji ?? seedEmoji(supabaseUser.id || email),
     gradientFrom: profile?.gradient_from ?? metadataGradientFrom ?? palette.from,
@@ -296,10 +297,11 @@ async function withProfileTimeout<T>(promise: Promise<T>): Promise<T> {
 
 export function buildUser(name: string, email: string): AuthUser {
   const palette = buildAvatarPalette(email);
+  const fallbackUsername = normalizeUsernameInput(name).replace(/\s+/g, "_").toLowerCase() || "grapevine_user";
   return {
     id: email,
     name,
-    username: usernameFromName(name),
+    username: fallbackUsername,
     email,
     emoji: randomEmoji(),
     gradientFrom: palette.from,
@@ -583,12 +585,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUpWithPassword = async (name: string, email: string, password: string, birthDate: string) => {
+  const signUpWithPassword = async (usernameInput: string, email: string, password: string, birthDate: string) => {
     try {
       const callbackUrl = getAuthCallbackUrl();
       const emoji = randomEmoji();
-      const username = usernameFromName(name);
+      const username = normalizeUsernameInput(usernameInput);
       const normalizedBirthDate = birthDate.trim();
+      const usernameError = validateUsername(username);
+
+      if (usernameError) {
+        return {
+          error: usernameError,
+          requiresEmailConfirmation: false,
+        };
+      }
 
       if (!isAtLeastAge(normalizedBirthDate, MINIMUM_REGISTER_AGE)) {
         return {
@@ -604,8 +614,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: {
             emailRedirectTo: callbackUrl,
             data: {
-              full_name: name,
-              username,
+              username: username,
               emoji,
               city: "",
               hide_score: false,

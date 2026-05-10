@@ -13,6 +13,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { searchWorldCities } from "@/lib/services/cities";
 import { getLatestAllowedBirthDateIso, isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
+import { validateUsername } from "@/lib/auth/username";
 
 /* ── small reusable field wrapper ── */
 function Field({
@@ -196,10 +197,7 @@ export function EditProfileScreen() {
 
   /* ── username validation ── */
   const usernameError = (() => {
-    if (!username.trim()) return "Username is required";
-    if (username.length < 3) return "At least 3 characters";
-    if (!/^[a-zA-Z0-9_.]+$/.test(username)) return "Only letters, numbers, _ and .";
-    return "";
+    return validateUsername(username) ?? "";
   })();
 
   /* ── password validation ── */

@@ -65,8 +65,12 @@ export function AccountPage() {
   }, [user]);
 
   const displayName = useMemo(() => {
-    if (profile?.display_name) {
-      return profile.display_name;
+    if (profile?.username?.trim()) {
+      return profile.username.trim();
+    }
+
+    if (user?.username?.trim()) {
+      return user.username.trim();
     }
 
     if (user?.email) {
@@ -74,7 +78,7 @@ export function AccountPage() {
     }
 
     return "Member";
-  }, [profile?.display_name, user?.email]);
+  }, [profile?.username, user?.email, user?.username]);
 
   const handleSignOut = async () => {
     if (signingOut) {
@@ -113,7 +117,7 @@ export function AccountPage() {
       <section className="rounded-3xl border border-gray-100 bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
         <h1 className="text-[28px] tracking-tight text-gray-900">Account</h1>
         <p className="mt-1 text-[13px] text-gray-500">Email: {user.email}</p>
-        <p className="text-[13px] text-gray-500">Display name: {displayName}</p>
+        <p className="text-[13px] text-gray-500">Username: {displayName}</p>
 
         <button
           onClick={() => void handleSignOut()}
