@@ -122,28 +122,30 @@ export function AdBlockScreen() {
   /* ── Blocker detected ── */
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3] overflow-y-auto">
-      {/* Hero strip */}
-      <div
-        className="relative flex-none h-52 overflow-hidden"
-        style={{
-          backgroundImage:
-            "url(https://images.unsplash.com/photo-1697843898689-b6f6b27481ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwdWIlMjBiYXIlMjBwaW50JTIwYmVlciUyMHdhcm0lMjBsaWdodHxlbnwxfHx8fDE3NzcyOTk0MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080)",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-[#fbf8f3]" />
-
-        {/* Back */}
-        <button
-          onClick={() => navigate(-1 as any)}
-          className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center"
+      <div className="relative flex-none">
+        {/* Hero strip */}
+        <div
+          className="relative h-52"
+          style={{
+            backgroundImage:
+              "url(https://images.unsplash.com/photo-1697843898689-b6f6b27481ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwdWIlMjBiYXIlMjBwaW50JTIwYmVlciUyMHdhcm0lMjBsaWdodHxlbnwxfHx8fDE3NzcyOTk0MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
         >
-          <ArrowLeft size={16} className="text-white" />
-        </button>
+          <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/50 via-black/30 to-[#fbf8f3]" />
+
+          {/* Back */}
+          <button
+            onClick={() => navigate(-1 as any)}
+            className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 flex items-center justify-center"
+          >
+            <ArrowLeft size={16} className="text-white" />
+          </button>
+        </div>
 
         {/* Shield badge */}
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
+        <div className="absolute left-1/2 top-[calc(100%-8px)] z-20 -translate-x-1/2">
           <div className="w-16 h-16 rounded-2xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12)] flex items-center justify-center border border-gray-100">
             <ShieldWarning size={34} weight="duotone" className="text-amber-500" />
           </div>
@@ -151,7 +153,7 @@ export function AdBlockScreen() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 px-5 pt-12 pb-8 flex flex-col gap-5">
+      <div className="flex-1 px-5 pt-14 pb-8 flex flex-col gap-5">
         <div className="text-center">
           <div className="text-gray-900 text-[20px] leading-snug">Ad blocker detected</div>
           <div className="text-gray-500 text-[13px] mt-2 leading-relaxed">
@@ -216,20 +218,7 @@ export function AdBlockScreen() {
           )}
         </button>
 
-        {!recheckPending && (
-          <p className="text-center text-[12px] text-gray-400 -mt-2">
-            After disabling, refresh the page or tap the button above.
-          </p>
-        )}
-
-        <div className="text-center mt-auto pt-2">
-          <button
-            onClick={() => navigate(-1 as any)}
-            className="text-[12px] text-gray-400 underline underline-offset-2 active:text-gray-600 transition-colors"
-          >
-            Go back without changing
-          </button>
-        </div>
+        <div className="mt-auto" />
       </div>
     </div>
   );

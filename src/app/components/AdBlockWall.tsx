@@ -28,12 +28,11 @@ const STEPS = [
 
 export function AdBlockWall() {
   const { status, recheck } = useAdBlockDetection();
-  const [dismissed, setDismissed] = useState(false);
   const [recheckPending, setRecheckPending] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
 
-  // Not blocked or user dismissed → render nothing
-  if (status === "allowed" || dismissed) return null;
+  // Not blocked → render nothing
+  if (status === "allowed") return null;
 
   const handleRecheck = async () => {
     setRecheckPending(true);
@@ -56,26 +55,28 @@ export function AdBlockWall() {
   /* ── Blocked state — full wall ── */
   return (
     <div className="absolute inset-0 z-[200] flex flex-col bg-[#fbf8f3] overflow-y-auto">
-      {/* Hero strip */}
-      <div
-        className="relative flex-none h-52 overflow-hidden"
-        style={{
-          backgroundImage:
-            "url(https://images.unsplash.com/photo-1697843898689-b6f6b27481ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwdWIlMjBiYXIlMjBwaW50JTIwYmVlciUyMHdhcm0lMjBsaWdodHxlbnwxfHx8fDE3NzcyOTk0MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080)",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        {/* Dark gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/30 to-[#fbf8f3]" />
+      <div className="relative flex-none">
+        {/* Hero strip */}
+        <div
+          className="relative h-52"
+          style={{
+            backgroundImage:
+              "url(https://images.unsplash.com/photo-1697843898689-b6f6b27481ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwdWIlMjBiYXIlMjBwaW50JTIwYmVlciUyMHdhcm0lMjBsaWdodHxlbnwxfHx8fDE3NzcyOTk0MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          {/* Dark gradient overlay */}
+          <div className="absolute inset-0 z-0 bg-gradient-to-b from-black/50 via-black/30 to-[#fbf8f3]" />
 
-        {/* Logo top-left */}
-        <div className="absolute top-4 left-4">
-          <AppLogo />
+          {/* Logo top-left */}
+          <div className="absolute top-4 left-4 z-10">
+            <AppLogo />
+          </div>
         </div>
 
         {/* Shield badge */}
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2">
+        <div className="absolute left-1/2 top-[calc(100%-8px)] z-20 -translate-x-1/2">
           <div className="w-16 h-16 rounded-2xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12)] flex items-center justify-center border border-gray-100">
             <ShieldWarning size={34} weight="duotone" className="text-amber-500" />
           </div>
@@ -83,7 +84,7 @@ export function AdBlockWall() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 px-5 pt-12 pb-6 flex flex-col gap-5">
+      <div className="flex-1 px-5 pt-14 pb-8 flex flex-col gap-5">
         {/* Headline */}
         <div className="text-center">
           <div className="text-gray-900 text-[20px] leading-snug">
@@ -149,25 +150,7 @@ export function AdBlockWall() {
           )}
         </button>
 
-        {/* Retry hint */}
-        {!recheckPending && (
-          <p className="text-center text-[12px] text-gray-400 -mt-2">
-            After disabling, refresh the page or tap the button above.
-          </p>
-        )}
-
-        {/* Escape hatch — visually de-emphasised */}
-        <div className="text-center mt-auto pt-2">
-          <button
-            onClick={() => setDismissed(true)}
-            className="text-[12px] text-gray-400 underline underline-offset-2 active:text-gray-600 transition-colors"
-          >
-            Continue with ads blocked
-          </button>
-          <p className="text-[11px] text-gray-300 mt-1">
-            Some features may be limited.
-          </p>
-        </div>
+        <div className="mt-auto" />
       </div>
     </div>
   );
