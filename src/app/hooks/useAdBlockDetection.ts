@@ -77,23 +77,48 @@ async function runBaitFetchCheck(): Promise<boolean> {
 
 export type AdBlockStatus = "checking" | "blocked" | "allowed";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export function useAdBlockDetection() {
   const [status, setStatus] = useState<AdBlockStatus>("checking");
 
-  const check = useCallback(async () => {
+  const check = useCallback(async (options?: { attempts?: number; delayMs?: number }) => {
+    const attempts = Math.max(1, options?.attempts ?? 1);
+    const delayMs = Math.max(0, options?.delayMs ?? 250);
+
     setStatus("checking");
 
-    const [elementBlocked, fetchBlocked] = await Promise.all([
-      runBaitElementCheck(),
-      runBaitFetchCheck(),
-    ]);
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const [elementBlocked, fetchBlocked] = await Promise.all([
+        runBaitElementCheck(),
+        runBaitFetchCheck(),
+      ]);
 
-    // Require both signals to agree to avoid false positives
-    setStatus(elementBlocked && fetchBlocked ? "blocked" : "allowed");
+      const blocked = elementBlocked && fetchBlocked;
+
+      // As soon as one fresh pass detects "allowed", unblock immediately.
+      if (!blocked) {
+        setStatus("allowed");
+        return "allowed" as const;
+      }
+
+      if (attempt < attempts - 1) {
+        await sleep(delayMs);
+      }
+    }
+
+    setStatus("blocked");
+    return "blocked" as const;
   }, []);
 
   useEffect(() => {
-    check();
+    check({ attempts: 1 }).catch(() => {
+      setStatus("blocked");
+    });
   }, [check]);
 
   return { status, recheck: check };

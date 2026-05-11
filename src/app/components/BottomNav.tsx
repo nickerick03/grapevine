@@ -22,21 +22,11 @@ export function BottomNav() {
             onClick={() => navigate(path)}
             className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 transition-colors"
           >
-            {label === "Explore" ? (
-              <img
-                src={active ? "/icons/leaf-icon-selected.svg" : "/icons/leaf-icon-default.svg"}
-                alt=""
-                aria-hidden="true"
-                className="w-[22px] h-[22px] object-contain"
-                draggable={false}
-              />
-            ) : (
-              <Icon
-                weight={active ? "fill" : "regular"}
-                size={22}
-                style={{ color: active ? "#111827" : "#9ca3af" }}
-              />
-            )}
+            <Icon
+              weight={active ? "fill" : "regular"}
+              size={22}
+              style={{ color: active ? "#111827" : "#9ca3af" }}
+            />
             <span
               className="text-[10px] leading-none"
               style={{ color: active ? "#111827" : "#9ca3af" }}

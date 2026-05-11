@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Eye, EyeOff, CalendarDays } from "lucide-react";
-import { CircleNotch } from "@phosphor-icons/react";
+import { CircleNotch, GoogleLogo } from "@phosphor-icons/react";
 import { useAuth } from "../context/AuthContext";
+import { AppLogo } from "./AppLogo";
 import {
   formatIsoToBirthDateInput,
   getLatestAllowedBirthDateIso,
@@ -15,10 +16,12 @@ import { normalizeUsernameInput, validateUsername } from "@/lib/auth/username";
 export function AuthModal() {
   const {
     authModalOpen,
+    authModalInitialTab,
     closeAuthModal,
     signInWithPassword,
     signUpWithPassword,
     sendPasswordResetEmail,
+    signInWithGoogle,
     rememberMe,
     rememberedEmail,
     setRememberMe,
@@ -27,6 +30,7 @@ export function AuthModal() {
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
 
   // Login form state
@@ -50,11 +54,15 @@ export function AuthModal() {
     if (!authModalOpen) {
       return;
     }
+    setTab(authModalInitialTab);
+    setForgotMode(false);
+    setError("");
+    setNotice("");
     if (rememberedEmail) {
       setLoginEmail((current) => (current ? current : rememberedEmail));
       setRegEmail((current) => (current ? current : rememberedEmail));
     }
-  }, [authModalOpen, rememberedEmail]);
+  }, [authModalInitialTab, authModalOpen, rememberedEmail]);
 
   const handleLogin = async () => {
     if (!loginEmail || !loginPass) { setError("Please fill in all fields."); return; }
@@ -138,6 +146,22 @@ export function AuthModal() {
     }
   };
 
+  const handleGoogleAuth = async () => {
+    setError("");
+    setNotice("");
+    setGoogleSubmitting(true);
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setNotice("Redirecting you to Google...");
+    } finally {
+      setGoogleSubmitting(false);
+    }
+  };
+
   const handleBirthDateInputChange = (nextValue: string) => {
     const normalizedInput = normalizeBirthDateInput(nextValue);
     setRegBirthDateInput(normalizedInput);
@@ -187,28 +211,8 @@ export function AuthModal() {
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          {/* Mini logo */}
           <div className="flex items-center gap-2">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)" }}
-            >
-              <div className="flex gap-[2px] items-end h-4">
-                {[
-                  { color: "#F59E0B", h: "60%" },
-                  { color: "#EF4444", h: "80%" },
-                  { color: "#10B981", h: "100%" },
-                  { color: "#3B82F6", h: "70%" },
-                  { color: "#8B5CF6", h: "85%" },
-                ].map((b, i) => (
-                  <div
-                    key={i}
-                    className="w-[2.5px] rounded-full"
-                    style={{ height: b.h, background: b.color }}
-                  />
-                ))}
-              </div>
-            </div>
+            <AppLogo className="h-8 w-8" />
             <span className="text-gray-900 tracking-tight">Grapevine</span>
           </div>
           <button
@@ -238,6 +242,22 @@ export function AuthModal() {
 
         {/* Forms */}
         <div className="px-5 pt-4 pb-6 space-y-3">
+          <button
+            type="button"
+            onClick={handleGoogleAuth}
+            disabled={googleSubmitting || submitting}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-800 text-[13px] flex items-center justify-center gap-2 disabled:opacity-70"
+          >
+            {googleSubmitting ? <CircleNotch className="w-4 h-4 animate-spin" /> : <GoogleLogo className="w-4 h-4" />}
+            Continue with Google
+          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-gray-200" />
+            <span className="text-[11px] text-gray-400">or</span>
+            <div className="h-px flex-1 bg-gray-200" />
+          </div>
+
           {tab === "login" ? (
             <>
               <div className="text-[13px] text-gray-600 mb-1">

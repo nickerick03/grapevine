@@ -98,6 +98,7 @@ export function ProfileRatingsScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [nextPage, setNextPage] = useState(1);
   const [deletingRatingId, setDeletingRatingId] = useState<string | null>(null);
+  const [pendingDeleteRatingId, setPendingDeleteRatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const placeById = useMemo(() => new Map(pubs.map((pub) => [pub.id, pub])), [pubs]);
@@ -200,6 +201,21 @@ export function ProfileRatingsScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!pendingDeleteRatingId) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPendingDeleteRatingId(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [pendingDeleteRatingId]);
+
   if (!user) {
     return <AuthScreen profileMode />;
   }
@@ -235,7 +251,7 @@ export function ProfileRatingsScreen() {
                   rating={rating}
                   placeName={placeName}
                   onOpenPlace={() => navigate(`/detail/${rating.place_id}`)}
-                  onDelete={() => void handleDeleteRating(rating.id)}
+                  onDelete={() => setPendingDeleteRatingId(rating.id)}
                   deleting={deletingRatingId === rating.id}
                 />
               );
@@ -258,6 +274,50 @@ export function ProfileRatingsScreen() {
       </div>
 
       <BottomNav />
+
+      {pendingDeleteRatingId ? (
+        <div
+          className="fixed inset-0 z-[140] bg-black/45 flex items-center justify-center px-4"
+          onClick={() => setPendingDeleteRatingId(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-rating-delete-title"
+            className="w-full max-w-sm rounded-3xl border border-gray-200 bg-white p-5 shadow-[0_18px_48px_rgba(0,0,0,0.2)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="confirm-rating-delete-title" className="text-[17px] text-gray-900">
+              Delete this rating?
+            </h2>
+            <p className="mt-1 text-[13px] text-gray-500 leading-relaxed">
+              This action cannot be undone. Your rating and note will be removed from this place.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteRatingId(null)}
+                className="h-10 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-700"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                disabled={deletingRatingId === pendingDeleteRatingId}
+                onClick={async () => {
+                  const confirmedId = pendingDeleteRatingId;
+                  if (!confirmedId) return;
+                  await handleDeleteRating(confirmedId);
+                  setPendingDeleteRatingId(null);
+                }}
+                className="h-10 rounded-xl bg-red-600 text-[13px] text-white shadow-sm shadow-red-600/20 disabled:opacity-60"
+              >
+                {deletingRatingId === pendingDeleteRatingId ? "Deleting..." : "Yes, Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

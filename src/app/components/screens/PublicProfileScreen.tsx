@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, ChevronDown, MapPin, MessageSquareText, Star, Trophy } from "lucide-react";
 import { getPublicProfileByUsername, type PublicProfileEntry } from "@/lib/services/profile";
+import { getPublicProfileCupPlacements } from "@/lib/services/cups";
+import { svgMarkupToDataUri } from "@/lib/cup-artwork";
+import type { PublicProfileCupPlacement } from "@/types/cup";
 
 function formatMemberSince(value: string): string {
   const date = new Date(value);
@@ -28,6 +31,38 @@ function formatNoteDate(value: string): string {
   });
 }
 
+function formatCupPeriod(startAt: string | null, endAt: string | null, fallbackDate: string): string {
+  const formatDate = (value: string | null): string | null => {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const start = formatDate(startAt);
+  const end = formatDate(endAt);
+
+  if (start && end) {
+    return `${start} - ${end}`;
+  }
+  if (start) {
+    return `${start} -`;
+  }
+  if (end) {
+    return `- ${end}`;
+  }
+
+  return formatNoteDate(fallbackDate);
+}
+
 function formatScore(value: number | null): string {
   if (value == null || !Number.isFinite(value)) {
     return "0";
@@ -37,12 +72,31 @@ function formatScore(value: number | null): string {
   return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
 }
 
+function getCupResultHeadline(placement: PublicProfileCupPlacement): string {
+  if (placement.placement === 1) {
+    return `Winner of ${placement.cupName}!`;
+  }
+  if (placement.placement === 2) {
+    return `Second place in ${placement.cupName}`;
+  }
+  return `Third place in ${placement.cupName}`;
+}
+
+function getCupResultPointsLine(placement: PublicProfileCupPlacement): string {
+  if (placement.placement === 1) {
+    return `Won with ${formatScore(placement.cupScore)} points`;
+  }
+  return `Finished with ${formatScore(placement.cupScore)} points`;
+}
+
 export function PublicProfileScreen() {
   const navigate = useNavigate();
   const { username = "" } = useParams<{ username: string }>();
   const [profile, setProfile] = useState<PublicProfileEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [scoreExpanded, setScoreExpanded] = useState(false);
+  const [cupPlacements, setCupPlacements] = useState<PublicProfileCupPlacement[]>([]);
+  const [placementsLoading, setPlacementsLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,9 +108,31 @@ export function PublicProfileScreen() {
         if (!cancelled) {
           setProfile(data);
         }
+        if (data?.scoreVisible) {
+          setPlacementsLoading(true);
+          try {
+            const placements = await getPublicProfileCupPlacements(data.username);
+            if (!cancelled) {
+              setCupPlacements(placements);
+            }
+          } catch {
+            if (!cancelled) {
+              setCupPlacements([]);
+            }
+          } finally {
+            if (!cancelled) {
+              setPlacementsLoading(false);
+            }
+          }
+        } else if (!cancelled) {
+          setCupPlacements([]);
+          setPlacementsLoading(false);
+        }
       } catch {
         if (!cancelled) {
           setProfile(null);
+          setCupPlacements([]);
+          setPlacementsLoading(false);
         }
       } finally {
         if (!cancelled) {
@@ -73,6 +149,8 @@ export function PublicProfileScreen() {
 
   useEffect(() => {
     setScoreExpanded(false);
+    setCupPlacements([]);
+    setPlacementsLoading(false);
   }, [username]);
 
   const handleName = useMemo(() => {
@@ -101,16 +179,25 @@ export function PublicProfileScreen() {
       return [];
     }
 
-    return [
+    const baseLines = [
       { label: "Helpful votes received", value: profile.helpfulVotes ?? 0, weight: 0.1 },
       { label: "First ratings on unrated places", value: profile.firstRatings ?? 0, weight: 5 },
       { label: "Unique cities covered", value: profile.cityCount ?? 0, weight: 10 },
       { label: "Reviews submitted", value: profile.ratingCount ?? 0, weight: 1 },
       { label: "Notes submitted", value: profile.notesCount ?? 0, weight: 3 },
     ];
+
+    const baseScore = baseLines.reduce((sum, line) => sum + line.value * line.weight, 0);
+    const cupBonus = Math.max(0, Math.round(((profile.grapevineScore ?? 0) - baseScore) * 10) / 10);
+    if (cupBonus > 0) {
+      return [...baseLines, { label: "Cup placement rewards", value: cupBonus, weight: 1, directPoints: true }];
+    }
+
+    return baseLines;
   }, [
     profile?.cityCount,
     profile?.firstRatings,
+    profile?.grapevineScore,
     profile?.helpfulVotes,
     profile?.notesCount,
     profile?.ratingCount,
@@ -223,9 +310,13 @@ export function PublicProfileScreen() {
                           {scoreLines.map((line) => (
                             <div key={line.label} className="flex items-center justify-between text-[11px] text-gray-600">
                               <span className="truncate pr-2">
-                                {line.label} ({line.value}) × {line.weight}
+                                {"directPoints" in line && line.directPoints
+                                  ? line.label
+                                  : `${line.label} (${line.value}) × ${line.weight}`}
                               </span>
-                              <span className="text-gray-700">+{formatScore(line.value * line.weight)}</span>
+                              <span className="text-gray-700">
+                                +{formatScore(("directPoints" in line && line.directPoints) ? line.value : line.value * line.weight)}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -238,6 +329,52 @@ export function PublicProfileScreen() {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.05)] p-4">
+              <div className="flex items-center gap-2 text-gray-900 mb-2">
+                <Trophy className="w-4 h-4 text-amber-500" />
+                <span className="text-[14px]">Cup Honors</span>
+              </div>
+
+              {!profile.scoreVisible ? (
+                <div className="rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12px] text-gray-600">
+                  Cup honors are hidden by this user's score privacy setting.
+                </div>
+              ) : placementsLoading ? (
+                <div className="rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12px] text-gray-500">
+                  Loading Cup honors...
+                </div>
+              ) : cupPlacements.length === 0 ? (
+                <div className="rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12px] text-gray-600">
+                  No Cup wins yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {cupPlacements.map((placement) => {
+                    const artworkMarkup = placement.placement === 1 ? placement.cupSvgMarkup : placement.badgeSvgMarkup;
+                    const artworkUri = artworkMarkup ? svgMarkupToDataUri(artworkMarkup) : null;
+                    return (
+                      <div key={`${placement.cupId}:${placement.placement}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl border border-gray-100 bg-white flex items-center justify-center overflow-hidden">
+                          {artworkUri ? (
+                            <img src={artworkUri} alt={`${placement.cupName} placement`} className="w-full h-full object-contain" />
+                          ) : (
+                            <span className="text-xl">{placement.placement === 1 ? "🏆" : placement.placement === 2 ? "🥈" : "🥉"}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[13px] text-gray-900 truncate">{getCupResultHeadline(placement)}</div>
+                          <div className="text-[11px] text-gray-600">{getCupResultPointsLine(placement)}</div>
+                          <div className="text-[10px] text-gray-400">
+                            {formatCupPeriod(placement.cupStartAt, placement.cupEndAt, placement.awardedAt)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.05)] p-4">

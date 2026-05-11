@@ -61,6 +61,9 @@ export interface AdminFlaggedNoteRow {
   rating_status: "active" | "revoked";
   flag_count: number;
   last_flagged_at: string;
+  reasons: string[] | null;
+  latest_reason: string | null;
+  latest_details: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -22,6 +22,8 @@ import { useUI } from "../../context/UIContext";
 import { formatDistance, useSettings } from "../../context/SettingsContext";
 import { AdUnit } from "../AdUnit";
 import { searchOsmPlaces, searchOsmPlacesProgressive, toExternalPub, type OsmPlaceResult } from "@/lib/services/osm";
+import { AppLogo } from "../AppLogo";
+import { OnboardingModal } from "../OnboardingModal";
 
 const CITY_TO_COUNTRY: Record<string, string> = {
   Budapest: "Hungary",
@@ -32,9 +34,14 @@ const CITY_TO_COUNTRY: Record<string, string> = {
 };
 
 const EXPLORE_MAP_STATE_KEY = "grapevine.explore.mapState.v1";
+const EXPLORE_GUEST_SESSION_KEY = "grapevine.explore.guestSession.v1";
+const EXPLORE_ONBOARDING_DONE_KEY = "grapevine.explore.onboardingDone.v1";
 
 type PersistedExploreMapState = {
   center: { lat: number; lng: number };
+  zoom: number | null;
+  selectedVenueId: string | null;
+  query: string;
   bounds: { north: number; south: number; east: number; west: number } | null;
   searchAreaRadiusKm: number | null;
   eyeMode?: boolean;
@@ -64,6 +71,11 @@ function readPersistedExploreMapState(): PersistedExploreMapState | null {
 
     return {
       center: parsed.center,
+      zoom: parsed.zoom != null && Number.isFinite(parsed.zoom) ? parsed.zoom : null,
+      selectedVenueId: typeof parsed.selectedVenueId === "string" && parsed.selectedVenueId.trim()
+        ? parsed.selectedVenueId
+        : null,
+      query: typeof parsed.query === "string" ? parsed.query : "",
       bounds: hasBounds ? parsed.bounds : null,
       searchAreaRadiusKm: parsed.searchAreaRadiusKm != null && Number.isFinite(parsed.searchAreaRadiusKm)
         ? parsed.searchAreaRadiusKm
@@ -73,6 +85,30 @@ function readPersistedExploreMapState(): PersistedExploreMapState | null {
   } catch {
     return null;
   }
+}
+
+function readCompletedOnboardingUsers(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(EXPLORE_ONBOARDING_DONE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function markOnboardingDoneForUser(userId: string) {
+  if (typeof window === "undefined" || !userId) {
+    return;
+  }
+  const existing = new Set(readCompletedOnboardingUsers());
+  existing.add(userId);
+  window.localStorage.setItem(EXPLORE_ONBOARDING_DONE_KEY, JSON.stringify(Array.from(existing)));
 }
 
 function normalizePlaceText(value: string | undefined): string {
@@ -172,17 +208,32 @@ function computeRadiusFromBounds(
 
 export function ExploreScreen() {
   const navigate = useNavigate();
-  const { user, openAuthModal } = useAuth();
+  const { user, openAuthModal, authModalOpen } = useAuth();
   const { pubs, loading: placesLoading } = usePlaces();
-  const { values, enabled, margin, marginEnabled, selectedCity, selectedArea, searchRadius, venueTypes, price } = useFilters();
+  const {
+    values,
+    setValues,
+    enabled,
+    setEnabled,
+    margin,
+    setMargin,
+    marginEnabled,
+    setMarginEnabled,
+    selectedCity,
+    selectedArea,
+    searchRadius,
+    venueTypes,
+    price,
+  } = useFilters();
   const { distanceUnit, showTouristHeavyBars } = useSettings();
   const { openRate } = useUI();
 
   const persistedMapState = readPersistedExploreMapState();
   const [view, setView] = useState<"map" | "list">("map");
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [query, setQuery] = useState(() => persistedMapState?.query ?? "");
+  const [debouncedQuery, setDebouncedQuery] = useState(() => (persistedMapState?.query ?? "").trim());
   const [selected, setSelected] = useState<string | undefined>(undefined);
+  const [selectionFocusToken, setSelectionFocusToken] = useState(0);
   const [located, setLocated] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | undefined>();
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number }>(() => {
@@ -200,6 +251,12 @@ export function ExploreScreen() {
   const [mapBounds, setMapBounds] = useState<{ north: number; south: number; east: number; west: number } | null>(() => {
     return persistedMapState?.bounds ?? null;
   });
+  const [mapZoom, setMapZoom] = useState<number>(() => {
+    if (persistedMapState?.zoom != null && Number.isFinite(persistedMapState.zoom)) {
+      return Math.max(3, Math.min(18, persistedMapState.zoom));
+    }
+    return 13;
+  });
   const [manualMapDeselected, setManualMapDeselected] = useState(false);
   const [showUnratedByTypeOnly, setShowUnratedByTypeOnly] = useState<boolean>(() => persistedMapState?.eyeMode ?? false);
   const [externalPubs, setExternalPubs] = useState<Pub[]>([]);
@@ -213,6 +270,13 @@ export function ExploreScreen() {
   const displayMapCountRef = useRef(0);
   const sheetRef = useRef<HTMLDivElement>(null);
   const [sheetHeight, setSheetHeight] = useState(0);
+  const [guestSessionActive, setGuestSessionActive] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.sessionStorage.getItem(EXPLORE_GUEST_SESSION_KEY) === "1";
+  });
+  const [showCreateProfileGate, setShowCreateProfileGate] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const previousUserIdRef = useRef<string | null>(null);
   const startY = useRef(0);
   const currentY = useRef(0);
   const skipSelectedCitySyncOnMount = useRef(true);
@@ -255,12 +319,51 @@ export function ExploreScreen() {
     const centerToPersist = lastMapCenter ?? searchCenter;
     const payload: PersistedExploreMapState = {
       center: centerToPersist,
+      zoom: mapZoom,
+      selectedVenueId: selected ?? null,
+      query,
       bounds: mapBounds,
       searchAreaRadiusKm: searchAreaMode ? searchAreaRadiusKm : null,
       eyeMode: showUnratedByTypeOnly,
     };
     window.sessionStorage.setItem(EXPLORE_MAP_STATE_KEY, JSON.stringify(payload));
-  }, [lastMapCenter, mapBounds, searchAreaMode, searchAreaRadiusKm, searchCenter, showUnratedByTypeOnly]);
+  }, [lastMapCenter, mapBounds, mapZoom, query, searchAreaMode, searchAreaRadiusKm, searchCenter, selected, showUnratedByTypeOnly]);
+
+  useEffect(() => {
+    if (user) {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(EXPLORE_GUEST_SESSION_KEY);
+      }
+      setGuestSessionActive(false);
+      setShowCreateProfileGate(false);
+      return;
+    }
+
+    setShowCreateProfileGate(!guestSessionActive && !authModalOpen);
+  }, [authModalOpen, guestSessionActive, user]);
+
+  useEffect(() => {
+    const currentUserId = user?.id ?? null;
+    const previousUserId = previousUserIdRef.current;
+
+    if (currentUserId && previousUserId !== currentUserId) {
+      const doneUsers = new Set(readCompletedOnboardingUsers());
+      if (!doneUsers.has(currentUserId)) {
+        setShowOnboarding(true);
+      }
+    }
+
+    previousUserIdRef.current = currentUserId;
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!persistedMapState?.selectedVenueId) {
+      return;
+    }
+    setSelected((current) => current ?? persistedMapState.selectedVenueId ?? undefined);
+    // Apply only once from initial session payload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (skipSelectedCitySyncOnMount.current) {
@@ -707,6 +810,48 @@ export function ExploreScreen() {
     else openAuthModal();
   };
 
+  const handleStartCreateProfile = () => {
+    setShowCreateProfileGate(false);
+    openAuthModal("register");
+  };
+
+  const handleStartLogin = () => {
+    setShowCreateProfileGate(false);
+    openAuthModal("login");
+  };
+
+  const handleUseAsGuest = () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(EXPLORE_GUEST_SESSION_KEY, "1");
+    }
+    setGuestSessionActive(true);
+    setShowCreateProfileGate(false);
+    setShowOnboarding(true);
+  };
+
+  const handleOnboardingComplete = ({
+    values: onboardingValues,
+    enabled: onboardingEnabled,
+  }: {
+    values: typeof values;
+    enabled: typeof enabled;
+  }) => {
+    setValues(onboardingValues);
+    setEnabled(onboardingEnabled);
+    setMarginEnabled(true);
+    setMargin((previous) => (Number.isFinite(previous) ? previous : 20));
+    // Exit area-discovery modes so onboarding slider choices immediately drive matching UI.
+    setShowUnratedByTypeOnly(false);
+    setSearchAreaMode(false);
+    setSearchAreaRadiusKm(null);
+
+    if (user?.id) {
+      markOnboardingDoneForUser(user.id);
+    }
+
+    setShowOnboarding(false);
+  };
+
   const handleLocate = () => {
     setLocated(true);
     setShowUnratedByTypeOnly(false);
@@ -765,15 +910,17 @@ export function ExploreScreen() {
   const handleSelectPub = useCallback((id: string) => {
     setManualMapDeselected(false);
     setSelected(id);
+    setSelectionFocusToken((token) => token + 1);
   }, []);
   const handleMapBackgroundClick = useCallback(() => {
     setSelected(undefined);
     setManualMapDeselected(true);
   }, []);
   const handleMapMoveEnd = useCallback(
-    ({ lat, lng, bounds }: { lat: number; lng: number; zoom: number; bounds: { north: number; south: number; east: number; west: number } }) => {
+    ({ lat, lng, zoom, bounds }: { lat: number; lng: number; zoom: number; bounds: { north: number; south: number; east: number; west: number } }) => {
       setLastMapCenter({ lat, lng });
       setMapBounds(bounds);
+      setMapZoom(zoom);
     },
     [],
   );
@@ -846,6 +993,7 @@ export function ExploreScreen() {
     }
 
     setSelected(pubId);
+    setSelectionFocusToken((token) => token + 1);
   }, [filtered, openPlaceDetails, pubsInCurrentMapView, selected]);
 
   const openPlaceDetailsFromListResult = useCallback((pubId: string) => {
@@ -856,6 +1004,7 @@ export function ExploreScreen() {
 
     setManualMapDeselected(false);
     setSelected(pubId);
+    setSelectionFocusToken((token) => token + 1);
     openPlaceDetails(pub);
   }, [filtered, openPlaceDetails]);
 
@@ -870,6 +1019,7 @@ export function ExploreScreen() {
       {/* Top bar */}
       <div className="flex-none px-4 pt-3 pb-2 bg-gradient-to-b from-[#fbf8f3] via-[#fbf8f3]/95 to-transparent z-20">
         <div className="flex items-center gap-2">
+          <AppLogo className="h-9 w-9" />
           {/* Search bar */}
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -965,6 +1115,8 @@ export function ExploreScreen() {
               located={located}
               userLocation={userLocation}
               mapCenter={lastMapCenter ?? searchCenter}
+              mapZoom={mapZoom}
+              selectionFocusToken={selectionFocusToken}
               focusYRatio={0.34}
               bottomInsetPx={mapBottomInsetPx}
               onMapMoveEnd={handleMapMoveEnd}
@@ -979,8 +1131,6 @@ export function ExploreScreen() {
                     setSearchAreaRadiusKm(mapBoundsRadiusKm ?? effectiveRadiusKm);
                     setSearchAreaMode(true);
                     setLastMapCenter(null);
-                    setQuery("");
-                    setDebouncedQuery("");
                   }}
                   className="px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-800 shadow-md text-[12px]"
                 >
@@ -1014,8 +1164,6 @@ export function ExploreScreen() {
                     const next = !current;
                     if (next) {
                       setSearchAreaMode(true);
-                      setQuery("");
-                      setDebouncedQuery("");
                     } else {
                       setSearchAreaMode(false);
                     }
@@ -1178,6 +1326,50 @@ export function ExploreScreen() {
           </div>
         )}
       </div>
+
+      {showCreateProfileGate ? (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center p-4 bg-black/45 backdrop-blur-[2px]">
+          <div className="w-full max-w-[360px] rounded-3xl bg-white border border-gray-100 shadow-[0_24px_70px_rgba(0,0,0,0.24)] px-5 py-5 text-center">
+            <div className="w-11 h-11 rounded-2xl mx-auto bg-amber-50 flex items-center justify-center">
+              <AppLogo className="h-7 w-7" />
+            </div>
+            <h3 className="mt-3 text-[21px] text-gray-900 tracking-tight">Log in or create profile</h3>
+            <p className="mt-1 text-[13px] text-gray-600 leading-5">
+              Sign in to save places, rate venues, and collect points in Grapevine.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleStartLogin}
+                className="h-11 rounded-full border border-gray-200 bg-white text-gray-800 text-[14px]"
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={handleStartCreateProfile}
+                className="h-11 rounded-full bg-gray-900 text-white text-[14px]"
+              >
+                Create profile
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleUseAsGuest}
+              className="mt-3 text-[12px] text-gray-500 underline underline-offset-2"
+            >
+              Use as guest
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {showOnboarding ? (
+        <OnboardingModal
+          initialValues={values}
+          onComplete={handleOnboardingComplete}
+        />
+      ) : null}
 
       {/* Bottom nav */}
       <BottomNav />

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import type { EmailOtpType } from "@supabase/supabase-js";
+import type { EmailOtpType, User as SupabaseUser } from "@supabase/supabase-js";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { CircleNotch } from "@phosphor-icons/react";
 
 import { supabase } from "@/lib/supabase/client";
+import { normalizeUsernameInput } from "@/lib/auth/username";
 
 type CallbackStatus = "processing" | "success" | "error";
 
@@ -81,6 +82,19 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function hasRequiredOnboarding(user: SupabaseUser | null, profile: { username: string | null; birth_date: string | null } | null): boolean {
+  const profileUsername = normalizeUsernameInput(profile?.username ?? "");
+  const metadataUsername = normalizeUsernameInput(
+    typeof user?.user_metadata?.username === "string" ? user.user_metadata.username : "",
+  );
+  const metadataBirthDate = typeof user?.user_metadata?.birth_date === "string"
+    ? user.user_metadata.birth_date.trim()
+    : "";
+  const profileBirthDate = profile?.birth_date?.trim() ?? "";
+
+  return Boolean(profileUsername || metadataUsername) && Boolean(profileBirthDate || metadataBirthDate);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMessage: string, timeoutMs = AUTH_STEP_TIMEOUT_MS): Promise<T> {
@@ -238,6 +252,18 @@ export function AuthCallbackScreen() {
           return;
         }
 
+        const { data: currentSessionData } = await supabase.auth.getSession();
+        const currentUser = currentSessionData.session?.user ?? null;
+        let profile: { username: string | null; birth_date: string | null } | null = null;
+        if (currentUser?.id) {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("username,birth_date")
+            .eq("id", currentUser.id)
+            .maybeSingle();
+          profile = profileData ?? null;
+        }
+
         if (isRecoveryFlow) {
           setState({
             status: "success",
@@ -254,10 +280,14 @@ export function AuthCallbackScreen() {
         setState({
           status: "success",
           title: "Registration verified",
-          message: "Your email is confirmed and you are now signed in. Taking you to Explore...",
+          message: "Your account is confirmed and you are now signed in.",
         });
 
         redirectTimeout = setTimeout(() => {
+          if (!hasRequiredOnboarding(currentUser, profile)) {
+            navigate("/edit-profile?onboarding=1", { replace: true });
+            return;
+          }
           navigate("/", { replace: true });
         }, AUTO_REDIRECT_MS);
       } catch (error) {

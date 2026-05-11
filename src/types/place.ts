@@ -102,6 +102,7 @@ export interface PlaceRatingInput {
 }
 
 export type NoteVote = -1 | 0 | 1;
+export type NoteFlagReason = "incorrect" | "false" | "inappropriate" | "other";
 
 export interface PlaceNoteCard {
   rating_id: string;

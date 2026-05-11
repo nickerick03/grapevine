@@ -96,8 +96,11 @@ export function ProfileScreen() {
   const [ratingCount, setRatingCount] = useState(0);
   const [userRatings, setUserRatings] = useState<PlaceRatingRecord[]>([]);
   const [deletingRatingId, setDeletingRatingId] = useState<string | null>(null);
+  const [pendingDeleteRatingId, setPendingDeleteRatingId] = useState<string | null>(null);
   const [scoreExpanded, setScoreExpanded] = useState(false);
   const [scoreBreakdown, setScoreBreakdown] = useState<GrapevineScoreBreakdown>({
+    baseScore: 0,
+    cupRewardPoints: 0,
     grapevineScore: 0,
     helpfulVotesReceived: 0,
     firstRatingsSubmitted: 0,
@@ -136,6 +139,8 @@ export function ProfileScreen() {
           setRatingCount(0);
           setUserRatings([]);
           setScoreBreakdown({
+            baseScore: 0,
+            cupRewardPoints: 0,
             grapevineScore: 0,
             helpfulVotesReceived: 0,
             firstRatingsSubmitted: 0,
@@ -190,6 +195,21 @@ export function ProfileScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!pendingDeleteRatingId) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPendingDeleteRatingId(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [pendingDeleteRatingId]);
+
   if (!user) {
     return <AuthScreen profileMode />;
   }
@@ -200,6 +220,7 @@ export function ProfileScreen() {
     { label: "Unique cities covered", value: scoreBreakdown.uniqueCitiesCovered, weight: 10 },
     { label: "Reviews submitted", value: scoreBreakdown.reviewsSubmitted, weight: 1 },
     { label: "Notes submitted", value: scoreBreakdown.notesSubmitted, weight: 3 },
+    { label: "Cup placement rewards", value: scoreBreakdown.cupRewardPoints, weight: 1, directPoints: true },
   ];
 
   const formatScore = (value: number) => {
@@ -291,10 +312,10 @@ export function ProfileScreen() {
                     {scoreLines.map((line) => (
                       <div key={line.label} className="flex items-center justify-between text-[11px] text-gray-600">
                         <span className="truncate pr-2">
-                          {line.label} ({line.value}) × {line.weight}
+                          {line.directPoints ? `${line.label}` : `${line.label} (${line.value}) × ${line.weight}`}
                         </span>
                         <span className="text-gray-700">
-                          +{formatScore(line.value * line.weight)}
+                          +{formatScore(line.directPoints ? line.value : line.value * line.weight)}
                         </span>
                       </div>
                     ))}
@@ -395,7 +416,7 @@ export function ProfileScreen() {
                       rating={rating}
                       placeName={ratedPlace?.name ?? "Place"}
                       onOpenPlace={() => navigate(`/detail/${rating.place_id}`)}
-                      onDelete={() => void handleDeleteRating(rating.id)}
+                      onDelete={() => setPendingDeleteRatingId(rating.id)}
                       deleting={deletingRatingId === rating.id}
                     />
                   );
@@ -415,6 +436,50 @@ export function ProfileScreen() {
       </div>
 
       <BottomNav />
+
+      {pendingDeleteRatingId ? (
+        <div
+          className="fixed inset-0 z-[140] bg-black/45 flex items-center justify-center px-4"
+          onClick={() => setPendingDeleteRatingId(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-rating-delete-title"
+            className="w-full max-w-sm rounded-3xl border border-gray-200 bg-white p-5 shadow-[0_18px_48px_rgba(0,0,0,0.2)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="confirm-rating-delete-title" className="text-[17px] text-gray-900">
+              Delete this rating?
+            </h2>
+            <p className="mt-1 text-[13px] text-gray-500 leading-relaxed">
+              This action cannot be undone. Your rating and note will be removed from this place.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteRatingId(null)}
+                className="h-10 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-700"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                disabled={deletingRatingId === pendingDeleteRatingId}
+                onClick={async () => {
+                  const confirmedId = pendingDeleteRatingId;
+                  if (!confirmedId) return;
+                  await handleDeleteRating(confirmedId);
+                  setPendingDeleteRatingId(null);
+                }}
+                className="h-10 rounded-xl bg-red-600 text-[13px] text-white shadow-sm shadow-red-600/20 disabled:opacity-60"
+              >
+                {deletingRatingId === pendingDeleteRatingId ? "Deleting..." : "Yes, Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

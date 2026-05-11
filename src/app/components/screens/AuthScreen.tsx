@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ArrowLeft, CalendarDays, Eye, EyeOff } from "lucide-react";
-import { CircleNotch } from "@phosphor-icons/react";
+import { CircleNotch, GoogleLogo } from "@phosphor-icons/react";
 import { useAuth } from "../../context/AuthContext";
 import { BottomNav } from "../BottomNav";
 import {
@@ -13,6 +13,7 @@ import {
   parseBirthDateInputToIso,
 } from "@/lib/auth/ageGate";
 import { normalizeUsernameInput, validateUsername } from "@/lib/auth/username";
+import { AppLogo } from "../AppLogo";
 
 interface AuthScreenProps {
   profileMode?: boolean;
@@ -21,11 +22,12 @@ interface AuthScreenProps {
 export function AuthScreen({ profileMode = false }: AuthScreenProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signInWithPassword, signUpWithPassword, sendPasswordResetEmail, rememberMe, rememberedEmail, setRememberMe } = useAuth();
+  const { signInWithPassword, signUpWithPassword, sendPasswordResetEmail, signInWithGoogle, rememberMe, rememberedEmail, setRememberMe } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
 
   const [loginEmail, setLoginEmail] = useState(rememberedEmail);
@@ -145,6 +147,22 @@ export function AuthScreen({ profileMode = false }: AuthScreenProps) {
     }
   };
 
+  const handleGoogleAuth = async () => {
+    setError("");
+    setNotice("");
+    setGoogleSubmitting(true);
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setNotice("Redirecting you to Google...");
+    } finally {
+      setGoogleSubmitting(false);
+    }
+  };
+
   const handleBirthDateInputChange = (nextValue: string) => {
     const normalizedInput = normalizeBirthDateInput(nextValue);
     setRegBirthDateInput(normalizedInput);
@@ -192,28 +210,8 @@ export function AuthScreen({ profileMode = false }: AuthScreenProps) {
       ) : null}
 
       <div className={`flex-1 px-5 pb-[84px] ${profileMode ? "overflow-hidden py-4" : "overflow-y-auto py-6"}`}>
-        {/* Logo */}
         <div className={`flex flex-col items-center ${profileMode ? "mb-5 mt-1" : "mb-8"}`}>
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3 shadow-md"
-            style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)" }}
-          >
-            <div className="flex gap-[3px] items-end h-7">
-              {[
-                { color: "#F59E0B", h: "55%" },
-                { color: "#EF4444", h: "75%" },
-                { color: "#10B981", h: "100%" },
-                { color: "#3B82F6", h: "65%" },
-                { color: "#8B5CF6", h: "80%" },
-              ].map((b, i) => (
-                <div
-                  key={i}
-                  className="w-[3px] rounded-full"
-                  style={{ height: b.h, background: b.color }}
-                />
-              ))}
-            </div>
-          </div>
+          <AppLogo className="h-14 w-14 mb-3" />
           <div className="text-gray-900 text-[18px] tracking-tight">Grapevine</div>
           <div className="text-[13px] text-gray-500 mt-1 text-center">
             Discover pubs by atmosphere, not just ratings.
@@ -234,6 +232,16 @@ export function AuthScreen({ profileMode = false }: AuthScreenProps) {
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleAuth}
+          disabled={googleSubmitting || submitting}
+          className="w-full mb-4 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-800 text-[13px] flex items-center justify-center gap-2 disabled:opacity-70"
+        >
+          {googleSubmitting ? <CircleNotch className="w-4 h-4 animate-spin" /> : <GoogleLogo className="w-4 h-4" />}
+          Continue with Google
+        </button>
 
         {/* Login form */}
         {tab === "login" && (

@@ -4,11 +4,30 @@ import { ArrowLeft } from "lucide-react";
 import { Trophy, Star, MapPin, City } from "@phosphor-icons/react";
 
 import { getLeaderboard, type LeaderboardEntry } from "@/lib/services/profile";
+import { getActiveCup, getCupLeaderboard } from "@/lib/services/cups";
+import { svgMarkupToDataUri } from "@/lib/cup-artwork";
+import type { CupLeaderboardEntry, CupRecord } from "@/types/cup";
 
 import { useAuth } from "../../context/AuthContext";
 import { BottomNav } from "../BottomNav";
 
 type PodiumPlace = 1 | 2 | 3;
+
+type TabKey = "cup" | "all-time";
+
+type LeaderRowData = {
+  rank: number;
+  userId: string;
+  username: string;
+  emoji: string;
+  gradientFrom: string;
+  gradientTo: string;
+  city: string;
+  score: number;
+  reviews: number;
+  cities: number;
+  cityList: string[];
+};
 
 const PODIUM_THEME: Record<
   PodiumPlace,
@@ -54,51 +73,167 @@ function formatScore(value: number): string {
   return rounded.toFixed(1);
 }
 
+function formatCountdown(secondsLeft: number): string {
+  const safe = Math.max(0, Math.floor(secondsLeft));
+  const days = Math.floor(safe / 86400);
+  const hours = Math.floor((safe % 86400) / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m left`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m left`;
+  }
+
+  return `${minutes}m left`;
+}
+
+function toAllTimeRows(entries: LeaderboardEntry[]): LeaderRowData[] {
+  return entries.map((entry) => ({
+    rank: entry.rank,
+    userId: entry.userId,
+    username: entry.username,
+    emoji: entry.emoji,
+    gradientFrom: entry.gradientFrom,
+    gradientTo: entry.gradientTo,
+    city: entry.city,
+    score: entry.grapevineScore,
+    reviews: entry.reviews,
+    cities: entry.cities,
+    cityList: entry.cityList,
+  }));
+}
+
+function toCupRows(entries: CupLeaderboardEntry[]): LeaderRowData[] {
+  return entries.map((entry) => ({
+    rank: entry.rank,
+    userId: entry.userId,
+    username: entry.username,
+    emoji: entry.emoji,
+    gradientFrom: entry.gradientFrom,
+    gradientTo: entry.gradientTo,
+    city: entry.city,
+    score: entry.cupScore,
+    reviews: entry.reviews,
+    cities: entry.cities,
+    cityList: entry.cityList,
+  }));
+}
+
 export function LeaderboardScreen() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabKey>("cup");
+
+  const [allTimeEntries, setAllTimeEntries] = useState<LeaderboardEntry[]>([]);
+  const [allTimeLoading, setAllTimeLoading] = useState(true);
+  const [allTimeError, setAllTimeError] = useState<string | null>(null);
+
+  const [activeCup, setActiveCup] = useState<CupRecord | null>(null);
+  const [cupEntries, setCupEntries] = useState<CupLeaderboardEntry[]>([]);
+  const [cupLoading, setCupLoading] = useState(true);
+  const [cupError, setCupError] = useState<string | null>(null);
+  const [countdownTick, setCountdownTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setLoading(true);
-      setError(null);
+    async function loadAllTime() {
+      setAllTimeLoading(true);
+      setAllTimeError(null);
 
       try {
         const next = await getLeaderboard(50);
         if (!cancelled) {
-          setEntries(next);
+          setAllTimeEntries(next);
         }
       } catch (loadError) {
         if (!cancelled) {
           const message = loadError instanceof Error ? loadError.message : "Failed to load leaderboard.";
-          setError(message);
-          setEntries([]);
+          setAllTimeError(message);
+          setAllTimeEntries([]);
         }
       } finally {
         if (!cancelled) {
-          setLoading(false);
+          setAllTimeLoading(false);
         }
       }
     }
 
-    void load();
+    void loadAllTime();
     return () => {
       cancelled = true;
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCup() {
+      setCupLoading(true);
+      setCupError(null);
+      try {
+        const cup = await getActiveCup();
+        if (cancelled) return;
+
+        setActiveCup(cup);
+
+        if (!cup) {
+          setCupEntries([]);
+          setCupLoading(false);
+          return;
+        }
+
+        const ranking = await getCupLeaderboard(50, cup.id);
+        if (!cancelled) {
+          setCupEntries(ranking);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          const message = loadError instanceof Error ? loadError.message : "Failed to load cup leaderboard.";
+          setCupError(message);
+          setCupEntries([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setCupLoading(false);
+        }
+      }
+    }
+
+    void loadCup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCountdownTick((value) => value + 1);
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const allTimeRows = useMemo(() => toAllTimeRows(allTimeEntries), [allTimeEntries]);
+  const cupRows = useMemo(() => toCupRows(cupEntries), [cupEntries]);
+
+  const visibleRows = tab === "cup" ? cupRows : allTimeRows;
+  const loading = tab === "cup" ? cupLoading : allTimeLoading;
+  const error = tab === "cup" ? cupError : allTimeError;
+
   const rankMap = useMemo(() => {
-    const map = new Map<number, LeaderboardEntry>();
-    for (const entry of entries) {
+    const map = new Map<number, LeaderRowData>();
+    for (const entry of visibleRows) {
       map.set(entry.rank, entry);
     }
     return map;
-  }, [entries]);
+  }, [visibleRows]);
+
   const top3 = useMemo(
     () => ({
       first: rankMap.get(1) ?? null,
@@ -107,11 +242,14 @@ export function LeaderboardScreen() {
     }),
     [rankMap],
   );
-  const rest = useMemo(() => entries.filter((entry) => entry.rank > 3).slice(0, 12), [entries]);
+  const rest = useMemo(() => visibleRows.filter((entry) => entry.rank > 3).slice(0, 12), [visibleRows]);
+
   const yourEntry = useMemo(() => {
     if (!user) return null;
-    return entries.find((entry) => entry.userId === user.id) ?? null;
-  }, [entries, user]);
+    return visibleRows.find((entry) => entry.userId === user.id) ?? null;
+  }, [visibleRows, user]);
+
+  const hiddenFromLeaderboard = user?.hideScore === true;
 
   const openPublicProfile = (username: string) => {
     const normalized = normalizeUsername(username);
@@ -119,7 +257,8 @@ export function LeaderboardScreen() {
     navigate(`/profile/${encodeURIComponent(normalized)}`);
   };
 
-  const hiddenFromLeaderboard = user?.hideScore === true;
+  const cupCountdown = activeCup ? formatCountdown(Math.max(0, activeCup.secondsLeft - countdownTick * 60)) : "";
+  const cupSvgUri = activeCup ? svgMarkupToDataUri(activeCup.svgMarkup) : null;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
@@ -134,20 +273,65 @@ export function LeaderboardScreen() {
         <div className="w-9" />
       </div>
 
+      <div className="flex-none px-4 pt-3 pb-1">
+        <div className="rounded-2xl border border-gray-100 bg-white p-1 flex gap-1">
+          <button
+            type="button"
+            onClick={() => setTab("cup")}
+            className={`flex-1 h-9 rounded-xl text-[12px] ${tab === "cup" ? "bg-gray-900 text-white" : "text-gray-600"}`}
+          >
+            Cup leaderboard
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("all-time")}
+            className={`flex-1 h-9 rounded-xl text-[12px] ${tab === "all-time" ? "bg-gray-900 text-white" : "text-gray-600"}`}
+          >
+            All-time leaderboard
+          </button>
+        </div>
+      </div>
+
       <div className="flex-1 overflow-y-auto pb-[84px]">
         {hiddenFromLeaderboard ? (
-          <div className="px-4 pt-4">
+          <div className="px-4 pt-3">
             <div className="rounded-2xl border border-purple-100 bg-purple-50 px-4 py-3 text-[12px] text-purple-700">
-              Your Grapevine Score is hidden in profile privacy settings, so you are not shown on the leaderboard.
+              Your Grapevine Score is hidden in profile privacy settings, so you are not shown on leaderboards.
             </div>
           </div>
         ) : null}
 
+        {tab === "cup" ? (
+          <div className="px-4 pt-3">
+            {!cupLoading && !cupError && activeCup ? (
+              <div className="rounded-2xl border border-gray-100 bg-white px-3 py-3 flex items-center gap-3 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                {cupSvgUri ? (
+                  <img src={cupSvgUri} alt={`${activeCup.name} artwork`} className="w-14 h-14 rounded-lg border border-gray-100 bg-white object-contain" />
+                ) : (
+                  <div className="w-14 h-14 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">🏆</div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-[15px] text-gray-900 truncate">{activeCup.name}</div>
+                  <div className="text-[12px] text-gray-500">{cupCountdown}</div>
+                  <div className="text-[11px] text-gray-400">Reward: {activeCup.rewardPoints} all-time pts</div>
+                </div>
+              </div>
+            ) : null}
+
+            {!cupLoading && !cupError && !activeCup ? (
+              <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-center">
+                <div className="text-[14px] text-gray-900">No active Cup right now</div>
+                <div className="text-[12px] text-gray-500 mt-1">Once a Cup is activated, rankings will appear here.</div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {loading ? (
-          <div className="px-4 pt-8 text-center text-[13px] text-gray-500">Loading leaderboard…</div>
+          <div className="px-4 pt-8 text-center text-[13px] text-gray-500">Loading leaderboard...</div>
         ) : error ? (
           <div className="px-4 pt-8 text-center text-[13px] text-red-500">{error}</div>
-        ) : entries.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <div className="px-4 pt-8 text-center">
             <div className="text-[14px] text-gray-900">No leaderboard data yet</div>
             <div className="text-[12px] text-gray-500 mt-1">As soon as users add ratings, rankings will appear here.</div>
@@ -198,7 +382,7 @@ function PodiumCard({
   onOpenProfile,
   crown,
 }: {
-  entry: LeaderboardEntry | null;
+  entry: LeaderRowData | null;
   place: PodiumPlace;
   onOpenProfile: (username: string) => void;
   crown?: boolean;
@@ -240,7 +424,7 @@ function PodiumCard({
               {normalizeUsername(entry!.username)}
             </button>
             <div className="text-[12px] mt-0.5" style={{ color: theme.review }}>
-              {formatScore(entry!.grapevineScore)} score
+              {formatScore(entry!.score)} score
             </div>
           </>
         ) : (
@@ -271,7 +455,7 @@ function LeaderRow({
   isYou,
   onOpenProfile,
 }: {
-  entry: LeaderboardEntry;
+  entry: LeaderRowData;
   isYou: boolean;
   onOpenProfile: (username: string) => void;
 }) {
@@ -315,7 +499,7 @@ function LeaderRow({
       <div className="flex flex-col items-end gap-1 flex-none">
         <div className={`flex items-center gap-1 text-[13px] ${isYou ? "text-white" : "text-gray-900"}`}>
           <Star weight="fill" size={12} className="text-amber-400" />
-          <span>{formatScore(entry.grapevineScore)}</span>
+          <span>{formatScore(entry.score)}</span>
         </div>
         <div className={`flex items-center gap-1 text-[11px] ${isYou ? "text-gray-400" : "text-gray-500"}`}>
           <City size={11} weight="duotone" />

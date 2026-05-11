@@ -93,6 +93,12 @@ export function AdminOverviewScreen() {
 
           <div className="mt-4 grid grid-cols-1 gap-2">
             <button
+              onClick={() => navigate("/admin/cups")}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
+            >
+              Cup Maker: create, activate, finalize, and manage rewards
+            </button>
+            <button
               onClick={() => navigate("/admin/venues")}
               className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
             >

@@ -14,6 +14,7 @@ import { radiusValueToKm, TOURIST_HEAVY_THRESHOLD } from "../filtering";
 import { formatDistance, useSettings } from "../../context/SettingsContext";
 import { formatPubAddress } from "../placeAddress";
 import { getTraitPillSlug } from "@/lib/chips";
+import { AppLogo } from "../AppLogo";
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -131,6 +132,7 @@ export function NearbyScreen() {
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
       <div className="flex-none px-4 pt-3 pb-2 bg-white/80 backdrop-blur border-b border-gray-100 z-10">
         <div className="flex items-center gap-2 mb-2">
+          <AppLogo className="h-9 w-9" />
           <div className="flex-1">
             <div className="text-gray-900 text-[16px]">Bars Near You</div>
           </div>

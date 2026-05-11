@@ -2,6 +2,7 @@ import { rankSimilarPlaces } from "@/lib/similarity";
 import { supabase } from "@/lib/supabase/client";
 import type {
   ExternalPlaceInput,
+  NoteFlagReason,
   NoteVote,
   PlaceNoteCard,
   PlaceRatingInput,
@@ -527,20 +528,42 @@ export async function clearNoteVote(userId: string, ratingId: string): Promise<v
   }
 }
 
-export async function flagNote(userId: string, ratingId: string): Promise<void> {
+export async function flagNote(
+  userId: string,
+  ratingId: string,
+  reason: NoteFlagReason,
+  details?: string,
+): Promise<"created"> {
+  const normalizedDetails = details?.trim() ? details.trim().slice(0, 280) : null;
+  const existing = await supabase
+    .from("place_rating_note_flags")
+    .select("id")
+    .eq("rating_id", ratingId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existing.error) {
+    throw existing.error;
+  }
+
+  if (existing.data?.id) {
+    throw new Error("You already reported this note.");
+  }
+
   const { error } = await supabase
     .from("place_rating_note_flags")
-    .upsert(
-      {
-        rating_id: ratingId,
-        user_id: userId,
-      },
-      { onConflict: "rating_id,user_id" },
-    );
+    .insert({
+      rating_id: ratingId,
+      user_id: userId,
+      reason,
+      details: reason === "other" ? normalizedDetails : null,
+    });
 
   if (error) {
     throw error;
   }
+
+  return "created";
 }
 
 export async function unflagNote(userId: string, ratingId: string): Promise<void> {

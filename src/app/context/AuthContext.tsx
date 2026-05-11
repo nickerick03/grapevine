@@ -61,9 +61,11 @@ interface AuthContextType {
   ) => Promise<{ error: string | null; requiresEmailConfirmation: boolean }>;
   sendPasswordResetEmail: (email: string) => Promise<{ error: string | null }>;
   sendMagicLink: (email: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   authModalOpen: boolean;
-  openAuthModal: () => void;
+  authModalInitialTab: "login" | "register";
+  openAuthModal: (tab?: "login" | "register") => void;
   closeAuthModal: () => void;
   profileDrawerOpen: boolean;
   openProfileDrawer: () => void;
@@ -86,8 +88,10 @@ const AuthContext = createContext<AuthContextType>({
   signUpWithPassword: async () => ({ error: "Auth provider not initialized.", requiresEmailConfirmation: false }),
   sendPasswordResetEmail: async () => ({ error: "Auth provider not initialized." }),
   sendMagicLink: async () => ({ error: "Auth provider not initialized." }),
+  signInWithGoogle: async () => ({ error: "Auth provider not initialized." }),
   logout: async () => {},
   authModalOpen: false,
+  authModalInitialTab: "login",
   openAuthModal: () => {},
   closeAuthModal: () => {},
   profileDrawerOpen: false,
@@ -322,6 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [rememberMe, setRememberMeState] = useState(true);
   const [rememberedEmail, setRememberedEmail] = useState("");
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalInitialTab, setAuthModalInitialTab] = useState<"login" | "register">("login");
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
   async function hydrateFromUser(nextUser: SupabaseUser, options?: { optimistic?: boolean }) {
@@ -712,6 +717,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signInWithGoogle: AuthContextType["signInWithGoogle"] = async () => {
+    try {
+      const callbackUrl = getAuthCallbackUrl();
+      const { error } = await withAuthTimeout(
+        supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: callbackUrl,
+            queryParams: {
+              prompt: "select_account",
+            },
+          },
+        }),
+        "Google sign-in is taking too long. Please try again.",
+      );
+
+      if (error) {
+        return { error: normalizeAuthErrorMessage(error.message) };
+      }
+
+      return { error: null };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Google sign-in failed. Please try again.";
+      return { error: message };
+    }
+  };
+
   const logout = async () => {
     const { error } = await supabase.auth.signOut();
 
@@ -765,15 +797,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signUpWithPassword,
       sendPasswordResetEmail,
       sendMagicLink,
+      signInWithGoogle,
       logout,
       authModalOpen,
-      openAuthModal: () => setAuthModalOpen(true),
+      authModalInitialTab,
+      openAuthModal: (tab: "login" | "register" = "login") => {
+        setAuthModalInitialTab(tab);
+        setAuthModalOpen(true);
+      },
       closeAuthModal: () => setAuthModalOpen(false),
       profileDrawerOpen,
       openProfileDrawer: () => setProfileDrawerOpen(true),
       closeProfileDrawer: () => setProfileDrawerOpen(false),
     }),
-    [authModalOpen, loading, profile, profileDrawerOpen, rememberMe, rememberedEmail, user],
+    [authModalInitialTab, authModalOpen, loading, profile, profileDrawerOpen, rememberMe, rememberedEmail, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

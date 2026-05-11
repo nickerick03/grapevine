@@ -11,6 +11,7 @@ import { usePlaces } from "../../context/PlacesContext";
 import { getSavedPlaceIds, unsavePlace } from "@/lib/services/places";
 import { formatPubAddress } from "../placeAddress";
 import { getTraitPillSlug } from "@/lib/chips";
+import { AppLogo } from "../AppLogo";
 
 export function SavedScreen() {
   const navigate = useNavigate();
@@ -91,6 +92,7 @@ export function SavedScreen() {
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
       <div className="flex-none px-4 pt-3 pb-2 bg-white/80 backdrop-blur border-b border-gray-100">
         <div className="flex items-center gap-2 mb-2">
+          <AppLogo className="h-9 w-9" />
           <div className="flex-1">
             <div className="text-gray-900 text-[16px]">Saved Places</div>
           </div>

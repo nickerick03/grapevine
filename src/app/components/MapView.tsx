@@ -8,17 +8,19 @@ import { Pub } from "./vibe";
 
 function MapFocus({
   selectedPub,
-  selectedId,
+  selectionFocusToken,
   userLocation,
+  located,
   focusYRatio,
 }: {
   selectedPub?: Pub;
-  selectedId?: string;
+  selectionFocusToken: number;
   userLocation?: { lat: number; lng: number };
+  located?: boolean;
   focusYRatio: number;
 }) {
   const map = useMap();
-  const lastFocusedSelectionId = useRef<string | undefined>(undefined);
+  const lastSelectionFocusToken = useRef<number>(selectionFocusToken);
 
   useEffect(() => {
     const clampedFocusY = Math.min(0.9, Math.max(0.1, focusYRatio));
@@ -41,22 +43,16 @@ function MapFocus({
       map.flyTo(adjustedCenter, zoom, { duration });
     };
 
-    if (userLocation) {
+    if (userLocation && located) {
       flyToWithVerticalFocus(userLocation.lat, userLocation.lng, 14, 0.8);
       return;
     }
 
-    if (selectedPub && selectedId && selectedId !== lastFocusedSelectionId.current) {
-      lastFocusedSelectionId.current = selectedId;
+    if (selectedPub && selectionFocusToken !== lastSelectionFocusToken.current) {
+      lastSelectionFocusToken.current = selectionFocusToken;
       flyToWithVerticalFocus(selectedPub.lat, selectedPub.lng, 13, 0.5);
     }
-  }, [focusYRatio, map, selectedId, selectedPub, userLocation]);
-
-  useEffect(() => {
-    if (!selectedId) {
-      lastFocusedSelectionId.current = undefined;
-    }
-  }, [selectedId]);
+  }, [focusYRatio, located, map, selectedPub, selectionFocusToken, userLocation]);
 
   return null;
 }
@@ -142,6 +138,8 @@ export function MapView({
   located = false,
   userLocation,
   mapCenter,
+  mapZoom = 13,
+  selectionFocusToken = 0,
   focusYRatio = 0.5,
   onMapMoveEnd,
   onMapBackgroundClick,
@@ -153,6 +151,8 @@ export function MapView({
   located?: boolean;
   userLocation?: { lat: number; lng: number };
   mapCenter?: { lat: number; lng: number };
+  mapZoom?: number;
+  selectionFocusToken?: number;
   focusYRatio?: number;
   onMapMoveEnd?: (payload: {
     lat: number;
@@ -186,7 +186,7 @@ export function MapView({
       <MapContainer
         className="simple-leaflet-map"
         center={center}
-        zoom={13}
+        zoom={mapZoom}
         style={{ width: "100%", height: "100%", zIndex: 0 }}
         zoomControl={false}
       >
@@ -240,7 +240,13 @@ export function MapView({
           </>
         ) : null}
 
-        <MapFocus selectedPub={selectedPub} selectedId={selected} userLocation={userLocation} focusYRatio={focusYRatio} />
+        <MapFocus
+          selectedPub={selectedPub}
+          selectionFocusToken={selectionFocusToken}
+          userLocation={userLocation}
+          located={located}
+          focusYRatio={focusYRatio}
+        />
         <MapViewportReporter
           onMoveEnd={onMapMoveEnd}
           onBackgroundClick={onMapBackgroundClick}

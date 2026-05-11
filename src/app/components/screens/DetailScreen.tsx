@@ -18,6 +18,7 @@ import {
   Trash2,
   History,
   X,
+  CheckCircle2,
 } from "lucide-react";
 import { DotsThree } from "@phosphor-icons/react";
 import { divIcon } from "leaflet";
@@ -42,11 +43,10 @@ import {
   savePlace,
   setNoteVote,
   updateOwnRatingNote,
-  unflagNote,
   unsavePlace,
 } from "@/lib/services/places";
 import { getMatchPillLabel, getMatchPillStyle, isPerfectMatch } from "../matchColors";
-import type { NoteVote, PlaceNoteCard } from "@/types/place";
+import type { NoteFlagReason, NoteVote, PlaceNoteCard } from "@/types/place";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -120,6 +120,11 @@ export function DetailScreen() {
     original: string;
     current: string;
   } | null>(null);
+  const [reportModalNote, setReportModalNote] = useState<PlaceNoteCard | null>(null);
+  const [reportReason, setReportReason] = useState<NoteFlagReason>("incorrect");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportSuccess, setReportSuccess] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
   const similarScored: Pub[] = useMemo(() => {
     if (!pub) {
       return [];
@@ -450,36 +455,42 @@ export function DetailScreen() {
       return;
     }
 
-    const snapshot = comments;
-    let nextFlag = false;
-
     setNotePending(ratingId, true);
-    setComments((previous) =>
-      previous.map((entry) => {
-        if (entry.rating_id !== ratingId) {
-          return entry;
-        }
-
-        nextFlag = !entry.flagged_by_me;
-        return {
-          ...entry,
-          flagged_by_me: nextFlag,
-        };
-      }),
-    );
 
     try {
-      if (nextFlag) {
-        await flagNote(user.id, ratingId);
-      } else {
-        await unflagNote(user.id, ratingId);
-      }
-    } catch {
-      setComments(snapshot);
+      await flagNote(user.id, ratingId, reportReason, reportDetails);
+      setComments((previous) =>
+        previous.map((entry) => (
+          entry.rating_id === ratingId ? { ...entry, flagged_by_me: true } : entry
+        )),
+      );
+      setReportModalNote(null);
+      setReportDetails("");
+      setReportReason("incorrect");
+      setReportSuccess("Thanks. Your report was submitted.");
+      window.setTimeout(() => setReportSuccess(null), 2400);
+      setReportError(null);
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : "Could not submit the report.");
     } finally {
       setNotePending(ratingId, false);
     }
   };
+
+  useEffect(() => {
+    if (!reportModalNote) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setReportModalNote(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [reportModalNote]);
 
   const beginNoteEdit = (entry: PlaceNoteCard) => {
     if (!user || user.id !== entry.user_id) {
@@ -777,16 +788,29 @@ export function DetailScreen() {
                             ) : (
                               <>
                                 {canShowOriginal ? <DropdownMenuSeparator /> : null}
-                                <DropdownMenuItem
-                                  onSelect={(event) => {
-                                    event.preventDefault();
-                                    void handleNoteFlag(c.rating_id);
-                                  }}
-                                  className={`text-[12px] ${c.flagged_by_me ? "text-amber-700" : ""}`}
-                                >
-                                  <Flag className="w-3.5 h-3.5" />
-                                  {c.flagged_by_me ? "Unflag note" : "Flag note"}
-                                </DropdownMenuItem>
+                                {c.flagged_by_me ? (
+                                  <DropdownMenuItem
+                                    disabled
+                                    className="text-[12px] text-emerald-700 data-[disabled]:opacity-100"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    Already reported
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      setReportReason("incorrect");
+                                      setReportDetails("");
+                                      setReportError(null);
+                                      setReportModalNote(c);
+                                    }}
+                                    className="text-[12px]"
+                                  >
+                                    <Flag className="w-3.5 h-3.5" />
+                                    Report note
+                                  </DropdownMenuItem>
+                                )}
                               </>
                             )}
                           </DropdownMenuContent>
@@ -1057,6 +1081,83 @@ export function DetailScreen() {
               {originalNotePreview.current}
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {reportModalNote ? (
+        <div
+          className="fixed inset-0 z-[132] bg-black/45 flex items-center justify-center px-4"
+          onClick={() => setReportModalNote(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white border border-gray-200 shadow-[0_18px_48px_rgba(0,0,0,0.2)] p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="text-[16px] text-gray-900">Report this note</div>
+            <div className="mt-1 text-[12px] text-gray-500">
+              Select a reason so our moderators can review it faster.
+            </div>
+            <div className="mt-3 space-y-1.5">
+              {[
+                { value: "incorrect", label: "Incorrect" },
+                { value: "false", label: "False" },
+                { value: "inappropriate", label: "Inappropriate" },
+                { value: "other", label: "Other" },
+              ].map((option) => {
+                const active = reportReason === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setReportReason(option.value as NoteFlagReason)}
+                    className={`w-full rounded-xl border px-3 py-2 text-left text-[13px] ${
+                      active ? "border-amber-300 bg-amber-50 text-amber-900" : "border-gray-200 bg-white text-gray-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            {reportReason === "other" ? (
+              <textarea
+                value={reportDetails}
+                onChange={(event) => setReportDetails(event.target.value.slice(0, 280))}
+                rows={3}
+                maxLength={280}
+                placeholder="Optional details"
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-800 outline-none focus:border-gray-300 resize-none"
+              />
+            ) : null}
+            {reportError ? (
+              <div className="mt-2 text-[12px] text-rose-600">{reportError}</div>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReportModalNote(null)}
+                className="h-10 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={pendingNoteIds[reportModalNote.rating_id]}
+                onClick={() => {
+                  void handleNoteFlag(reportModalNote.rating_id);
+                }}
+                className="h-10 rounded-xl bg-rose-600 text-[13px] text-white disabled:opacity-60"
+              >
+                {pendingNoteIds[reportModalNote.rating_id] ? "Reporting..." : "Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {reportSuccess ? (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[98px] z-[133] rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[12px] text-emerald-800 shadow-sm">
+          {reportSuccess}
         </div>
       ) : null}
 

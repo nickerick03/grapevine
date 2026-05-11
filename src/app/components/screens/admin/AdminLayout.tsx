@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 const TABS = [
   { path: "/admin", label: "Overview" },
+  { path: "/admin/cups", label: "Cups" },
   { path: "/admin/venues", label: "Venues" },
   { path: "/admin/users", label: "Users" },
   { path: "/admin/flags", label: "Flags" },

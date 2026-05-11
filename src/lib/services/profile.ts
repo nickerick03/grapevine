@@ -85,6 +85,8 @@ export interface PublicProfileEntry {
 }
 
 export interface GrapevineScoreBreakdown {
+  baseScore: number;
+  cupRewardPoints: number;
   grapevineScore: number;
   helpfulVotesReceived: number;
   firstRatingsSubmitted: number;
@@ -241,6 +243,8 @@ type RawGrapevineScoreRow = {
   unique_cities_covered: number | null;
   first_ratings_submitted: number | null;
   helpful_votes_received: number | null;
+  base_grapevine_score: number | string | null;
+  cup_reward_points: number | string | null;
   grapevine_score: number | string | null;
 };
 
@@ -278,13 +282,15 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
 export async function getGrapevineScoreByUserId(userId: string): Promise<GrapevineScoreBreakdown> {
   const { data, error } = await supabase
     .from("grapevine_user_score_stats")
-    .select("user_id,reviews_submitted,notes_submitted,unique_cities_covered,first_ratings_submitted,helpful_votes_received,grapevine_score")
+    .select("user_id,reviews_submitted,notes_submitted,unique_cities_covered,first_ratings_submitted,helpful_votes_received,base_grapevine_score,cup_reward_points,grapevine_score")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
     if (error.code === "42P01" || error.code === "42703" || error.code === "PGRST205") {
       return {
+        baseScore: 0,
+        cupRewardPoints: 0,
         grapevineScore: 0,
         helpfulVotesReceived: 0,
         firstRatingsSubmitted: 0,
@@ -298,6 +304,8 @@ export async function getGrapevineScoreByUserId(userId: string): Promise<Grapevi
 
   if (!data) {
     return {
+      baseScore: 0,
+      cupRewardPoints: 0,
       grapevineScore: 0,
       helpfulVotesReceived: 0,
       firstRatingsSubmitted: 0,
@@ -310,6 +318,8 @@ export async function getGrapevineScoreByUserId(userId: string): Promise<Grapevi
   const row = data as RawGrapevineScoreRow;
 
   return {
+    baseScore: toNumeric(row.base_grapevine_score, 0),
+    cupRewardPoints: toNumeric(row.cup_reward_points, 0),
     grapevineScore: toNumeric(row.grapevine_score, 0),
     helpfulVotesReceived: row.helpful_votes_received ?? 0,
     firstRatingsSubmitted: row.first_ratings_submitted ?? 0,

@@ -45,7 +45,7 @@ export function AdBlockScreen() {
 
   const handleRecheck = async () => {
     setRecheckPending(true);
-    await recheck();
+    await recheck({ attempts: 6, delayMs: 250 });
     setRecheckPending(false);
   };
 

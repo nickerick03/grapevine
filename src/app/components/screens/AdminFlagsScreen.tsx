@@ -110,6 +110,23 @@ export function AdminFlagsScreen() {
                   <div className="mt-1 text-[11px] text-gray-500">
                     Last flagged: {new Date(row.last_flagged_at).toLocaleString()}
                   </div>
+                  {row.reasons && row.reasons.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {row.reasons.map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {row.latest_details ? (
+                    <div className="mt-1 text-[11px] text-gray-600">
+                      Latest details: {row.latest_details}
+                    </div>
+                  ) : null}
 
                   <div className="mt-2 flex flex-wrap gap-1">
                     {row.rating_status === "active" ? (

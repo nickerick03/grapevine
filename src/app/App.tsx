@@ -33,6 +33,7 @@ import {
 } from "./components/screens/LegalInfoScreens";
 import { ReportBugScreen } from "./components/screens/ReportBugScreen";
 import { AdminOverviewScreen } from "./components/screens/AdminOverviewScreen";
+import { AdminCupsScreen } from "./components/screens/AdminCupsScreen";
 import { AdminVenuesScreen } from "./components/screens/AdminVenuesScreen";
 import { AdminUsersScreen } from "./components/screens/AdminUsersScreen";
 import { AdminBugsScreen } from "./components/screens/AdminBugsScreen";
@@ -87,6 +88,8 @@ const router = createBrowserRouter([
       { path: "/settings/report-bug", Component: ReportBugScreen },
       { path: "admin", Component: AdminOverviewScreen },
       { path: "/admin", Component: AdminOverviewScreen },
+      { path: "admin/cups", Component: AdminCupsScreen },
+      { path: "/admin/cups", Component: AdminCupsScreen },
       { path: "admin/venues", Component: AdminVenuesScreen },
       { path: "/admin/venues", Component: AdminVenuesScreen },
       { path: "admin/users", Component: AdminUsersScreen },

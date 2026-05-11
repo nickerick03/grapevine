@@ -31,7 +31,46 @@ export interface PlaceRatingNoteFlagRecord {
   id: string;
   rating_id: string;
   user_id: string;
+  reason: "incorrect" | "false" | "inappropriate" | "other";
+  details: string | null;
   created_at: string;
+}
+
+export interface CupPlacementRecord {
+  id: string;
+  cup_id: string;
+  user_id: string;
+  placement: 1 | 2 | 3;
+  cup_score: number;
+  reward_points_awarded: number;
+  created_at: string;
+}
+
+export interface ScoreTransactionRecord {
+  id: string;
+  user_id: string;
+  cup_id: string | null;
+  transaction_type: "cup_reward";
+  points: number;
+  idempotency_key: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CupRowRecord {
+  id: string;
+  name: string;
+  start_at: string;
+  end_at: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  reward_points: number;
+  svg_markup: string;
+  is_active: boolean;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Database {
@@ -76,8 +115,9 @@ export interface Database {
       };
       place_rating_note_flags: {
         Row: PlaceRatingNoteFlagRecord;
-        Insert: Partial<Pick<PlaceRatingNoteFlagRecord, "id">> & Pick<PlaceRatingNoteFlagRecord, "rating_id" | "user_id">;
-        Update: never;
+        Insert: Partial<Pick<PlaceRatingNoteFlagRecord, "id" | "details">> &
+          Pick<PlaceRatingNoteFlagRecord, "rating_id" | "user_id" | "reason">;
+        Update: Partial<Pick<PlaceRatingNoteFlagRecord, "reason" | "details">>;
       };
       bug_reports: {
         Row: BugReportRecord;
@@ -90,6 +130,23 @@ export interface Database {
         Insert: Partial<Pick<LegalDocumentRecord, "updated_at" | "updated_by">>
           & Pick<LegalDocumentRecord, "document_key" | "title" | "content">;
         Update: Partial<Omit<LegalDocumentRecord, "document_key">>;
+      };
+      cups: {
+        Row: CupRowRecord;
+        Insert: Partial<CupRowRecord> & Pick<CupRowRecord, "name" | "start_at" | "end_at" | "reward_points" | "svg_markup">;
+        Update: Partial<CupRowRecord>;
+      };
+      cup_placements: {
+        Row: CupPlacementRecord;
+        Insert: Partial<Pick<CupPlacementRecord, "id" | "created_at">>
+          & Pick<CupPlacementRecord, "cup_id" | "user_id" | "placement" | "cup_score" | "reward_points_awarded">;
+        Update: Partial<Omit<CupPlacementRecord, "id">>;
+      };
+      score_transactions: {
+        Row: ScoreTransactionRecord;
+        Insert: Partial<Pick<ScoreTransactionRecord, "id" | "created_at" | "metadata" | "cup_id">>
+          & Pick<ScoreTransactionRecord, "user_id" | "transaction_type" | "points" | "idempotency_key">;
+        Update: Partial<Omit<ScoreTransactionRecord, "id" | "created_at">>;
       };
     };
     Views: {

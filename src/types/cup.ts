@@ -1,0 +1,52 @@
+export interface CupRecord {
+  id: string;
+  name: string;
+  startAt: string;
+  endAt: string;
+  rewardPoints: number;
+  svgMarkup: string;
+  isActive: boolean;
+  finalizedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  secondsLeft: number;
+}
+
+export interface CupLeaderboardEntry {
+  rank: number;
+  userId: string;
+  username: string;
+  emoji: string;
+  gradientFrom: string;
+  gradientTo: string;
+  city: string;
+  cupScore: number;
+  allTimeScore: number;
+  helpfulVotes: number;
+  firstRatings: number;
+  reviews: number;
+  notes: number;
+  cities: number;
+  cityList: string[];
+  scoreReachedAt: string | null;
+}
+
+export interface PublicProfileCupPlacement {
+  cupId: string;
+  cupName: string;
+  placement: 1 | 2 | 3;
+  cupScore: number;
+  rewardPointsAwarded: number;
+  cupSvgMarkup: string | null;
+  badgeSvgMarkup: string | null;
+  cupStartAt: string | null;
+  cupEndAt: string | null;
+  awardedAt: string;
+}
+
+export interface AdminCupFinalizeResult {
+  cupId: string;
+  placementsSaved: number;
+  rewardsSaved: number;
+  alreadyFinalized: boolean;
+}

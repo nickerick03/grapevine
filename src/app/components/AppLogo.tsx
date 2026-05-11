@@ -1,9 +1,13 @@
-export function AppLogo() {
+interface AppLogoProps {
+  className?: string;
+}
+
+export function AppLogo({ className = "h-9 w-auto max-w-[3.4rem]" }: AppLogoProps) {
   return (
     <img
-      src="/grapevine-logo-nobg.svg"
+      src="/grapevinelogo_new.svg"
       alt="Grapevine"
-      className="h-9 w-auto max-w-[3.4rem] object-contain flex-none"
+      className={`${className} object-contain flex-none`}
       draggable={false}
     />
   );
