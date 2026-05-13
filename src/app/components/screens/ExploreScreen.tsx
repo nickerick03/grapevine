@@ -292,8 +292,11 @@ export function ExploreScreen() {
   const previousUserIdRef = useRef<string | null>(null);
   const handledFilterFocusTokenRef = useRef<number | null>(null);
   const searchBlurTimeoutRef = useRef<number | null>(null);
+  const startX = useRef(0);
   const startY = useRef(0);
+  const currentX = useRef(0);
   const currentY = useRef(0);
+  const touchMoved = useRef(false);
   const skipSelectedCitySyncOnMount = useRef(true);
   const hasSliderFilters = useMemo(() => SLIDERS.some((slider) => enabled[slider.key]), [enabled]);
   const searchFitQueryRef = useRef<string>("");
@@ -1018,9 +1021,39 @@ export function ExploreScreen() {
     };
   }, [filtered.length, placesLoading, view]);
 
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    startX.current = touch.clientX;
+    currentX.current = touch.clientX;
+    startY.current = touch.clientY;
+    currentY.current = touch.clientY;
+    touchMoved.current = false;
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    currentX.current = touch.clientX;
+    currentY.current = touch.clientY;
+
+    if (!touchMoved.current) {
+      const deltaX = Math.abs(currentX.current - startX.current);
+      const deltaY = Math.abs(currentY.current - startY.current);
+      touchMoved.current = deltaX > 6 || deltaY > 6;
+    }
+  };
+
   const handleTouchEnd = () => {
+    if (!touchMoved.current) {
+      return;
+    }
+
+    const deltaX = Math.abs(currentX.current - startX.current);
     const deltaY = startY.current - currentY.current;
-    if (deltaY > 80) setView("list");
+    if (deltaY > 80 && deltaY > deltaX * 1.2) {
+      setView("list");
+    }
+
+    touchMoved.current = false;
   };
 
   const handleUserButton = () => {
@@ -1557,9 +1590,10 @@ export function ExploreScreen() {
             {/* Bottom sheet — sits above BottomNav (bottom-[60px]) */}
             <div
               ref={sheetRef}
-              onTouchStart={(e) => { startY.current = e.touches[0].clientY; }}
-              onTouchMove={(e) => { currentY.current = e.touches[0].clientY; }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
               className="absolute left-0 right-0 z-20 bg-white rounded-t-3xl shadow-[0_-8px_32px_rgba(0,0,0,0.08)] border-t border-gray-100 max-h-[35%] overflow-hidden flex flex-col"
               style={{ bottom: "60px" }}
             >
