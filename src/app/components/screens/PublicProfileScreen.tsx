@@ -3,10 +3,12 @@ import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, ChevronDown, MapPin, MessageSquareText, Star, Trophy } from "lucide-react";
 import { getPublicProfileByUsername, type PublicProfileEntry } from "@/lib/services/profile";
 import { getPublicProfileCupPlacements } from "@/lib/services/cups";
-import { svgMarkupToDataUri } from "@/lib/cup-artwork";
+import { resolveCupArtworkUrl } from "@/lib/cup-artwork";
 import type { PublicProfileCupPlacement } from "@/types/cup";
 import { useAuth } from "@/app/context/AuthContext";
 import { createUserProfileReport } from "@/lib/services/admin";
+import { formatCupPeriod, getCupPlacementEmoji, getCupPlacementHeadline, getCupPlacementPointsLine } from "@/lib/cup-display";
+import { CupDetailDialog } from "@/app/components/cups/CupDetailDialog";
 
 const USER_REPORT_REASONS: Array<{
   value: "harassment" | "spam" | "impersonation" | "inappropriate" | "other";
@@ -44,38 +46,6 @@ function formatNoteDate(value: string): string {
   });
 }
 
-function formatCupPeriod(startAt: string | null, endAt: string | null, fallbackDate: string): string {
-  const formatDate = (value: string | null): string | null => {
-    if (!value) {
-      return null;
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    return date.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const start = formatDate(startAt);
-  const end = formatDate(endAt);
-
-  if (start && end) {
-    return `${start} - ${end}`;
-  }
-  if (start) {
-    return `${start} -`;
-  }
-  if (end) {
-    return `- ${end}`;
-  }
-
-  return formatNoteDate(fallbackDate);
-}
-
 function formatScore(value: number | null): string {
   if (value == null || !Number.isFinite(value)) {
     return "0";
@@ -84,24 +54,6 @@ function formatScore(value: number | null): string {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
 }
-
-function getCupResultHeadline(placement: PublicProfileCupPlacement): string {
-  if (placement.placement === 1) {
-    return `Winner of ${placement.cupName}!`;
-  }
-  if (placement.placement === 2) {
-    return `Second place in ${placement.cupName}`;
-  }
-  return `Third place in ${placement.cupName}`;
-}
-
-function getCupResultPointsLine(placement: PublicProfileCupPlacement): string {
-  if (placement.placement === 1) {
-    return `Won with ${formatScore(placement.cupScore)} points`;
-  }
-  return `Finished with ${formatScore(placement.cupScore)} points`;
-}
-
 export function PublicProfileScreen() {
   const navigate = useNavigate();
   const { user, openAuthModal } = useAuth();
@@ -117,6 +69,7 @@ export function PublicProfileScreen() {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSuccess, setReportSuccess] = useState<string | null>(null);
+  const [selectedCupPlacement, setSelectedCupPlacement] = useState<PublicProfileCupPlacement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +124,7 @@ export function PublicProfileScreen() {
     setScoreExpanded(false);
     setCupPlacements([]);
     setPlacementsLoading(false);
+    setSelectedCupPlacement(null);
   }, [username]);
 
   const handleName = useMemo(() => {
@@ -435,25 +389,32 @@ export function PublicProfileScreen() {
               ) : (
                 <div className="space-y-2">
                   {cupPlacements.map((placement) => {
-                    const artworkMarkup = placement.placement === 1 ? placement.cupSvgMarkup : placement.badgeSvgMarkup;
-                    const artworkUri = artworkMarkup ? svgMarkupToDataUri(artworkMarkup) : null;
+                    const placementArtworkUri = placement.placement === 1
+                      ? resolveCupArtworkUrl({ artworkUrl: placement.cupArtworkUrl, svgMarkup: null })
+                      : resolveCupArtworkUrl({ artworkUrl: null, svgMarkup: placement.badgeSvgMarkup })
+                        ?? resolveCupArtworkUrl({ artworkUrl: placement.cupArtworkUrl, svgMarkup: null });
                     return (
-                      <div key={`${placement.cupId}:${placement.placement}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3">
+                      <button
+                        key={`${placement.cupId}:${placement.placement}`}
+                        type="button"
+                        onClick={() => setSelectedCupPlacement(placement)}
+                        className="w-full text-left rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3 hover:border-gray-200 transition-colors"
+                      >
                         <div className="w-12 h-12 rounded-xl border border-gray-100 bg-white flex items-center justify-center overflow-hidden">
-                          {artworkUri ? (
-                            <img src={artworkUri} alt={`${placement.cupName} placement`} className="w-full h-full object-contain" />
+                          {placementArtworkUri ? (
+                            <img src={placementArtworkUri} alt={`${placement.cupName} placement`} className="w-full h-full object-contain" />
                           ) : (
-                            <span className="text-xl">{placement.placement === 1 ? "🏆" : placement.placement === 2 ? "🥈" : "🥉"}</span>
+                            <span className="text-xl">{getCupPlacementEmoji(placement.placement)}</span>
                           )}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-[13px] text-gray-900 truncate">{getCupResultHeadline(placement)}</div>
-                          <div className="text-[11px] text-gray-600">{getCupResultPointsLine(placement)}</div>
+                          <div className="text-[13px] text-gray-900 truncate">{getCupPlacementHeadline(placement)}</div>
+                          <div className="text-[11px] text-gray-600">{getCupPlacementPointsLine(placement)}</div>
                           <div className="text-[10px] text-gray-400">
                             {formatCupPeriod(placement.cupStartAt, placement.cupEndAt, placement.awardedAt)}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -496,6 +457,31 @@ export function PublicProfileScreen() {
           </div>
         )}
       </div>
+      <CupDetailDialog
+        open={Boolean(selectedCupPlacement)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedCupPlacement(null);
+          }
+        }}
+        cup={
+          selectedCupPlacement
+            ? {
+                name: selectedCupPlacement.cupName,
+                description: selectedCupPlacement.cupDescription,
+                artworkUrl: selectedCupPlacement.cupArtworkUrl,
+                startAt: selectedCupPlacement.cupStartAt,
+                endAt: selectedCupPlacement.cupEndAt,
+                rewardPoints: selectedCupPlacement.cupRewardPoints,
+                placement: selectedCupPlacement.placement,
+                cupScore: selectedCupPlacement.cupScore,
+                rewardPointsAwarded: selectedCupPlacement.rewardPointsAwarded,
+                awardedAt: selectedCupPlacement.awardedAt,
+                badgeSvgMarkup: selectedCupPlacement.badgeSvgMarkup,
+              }
+            : null
+        }
+      />
       {reportOpen ? (
         <div className="fixed inset-0 z-[110] bg-black/40 flex items-center justify-center px-4" onClick={() => setReportOpen(false)}>
           <div

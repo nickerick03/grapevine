@@ -175,6 +175,7 @@ export function EditProfileScreen() {
   const [showCitySuggestions, setShowCitySuggestions] = useState(false);
   const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
   const [citySearchLoading, setCitySearchLoading] = useState(false);
+  const [citySearchCompleted, setCitySearchCompleted] = useState(false);
   const [hideScore, setHideScore]     = useState(user?.hideScore ?? false);
   const [showPublicNotes, setShowPublicNotes] = useState(user?.showPublicNotes ?? true);
 
@@ -229,11 +230,13 @@ export function EditProfileScreen() {
     if (query.length < 2) {
       setCitySuggestions([]);
       setCitySearchLoading(false);
+      setCitySearchCompleted(false);
       return;
     }
 
     let cancelled = false;
     const controller = new AbortController();
+    setCitySearchCompleted(false);
     const timeoutId = window.setTimeout(() => {
       setCitySearchLoading(true);
       searchWorldCities(query, controller.signal)
@@ -250,9 +253,10 @@ export function EditProfileScreen() {
         .finally(() => {
           if (!cancelled) {
             setCitySearchLoading(false);
+            setCitySearchCompleted(true);
           }
         });
-    }, 250);
+    }, 160);
 
     return () => {
       cancelled = true;
@@ -417,6 +421,7 @@ export function EditProfileScreen() {
                   onChange={(v) => {
                     setCityQuery(v);
                     setCity("");
+                    setCitySearchCompleted(false);
                     setShowCitySuggestions(true);
                     setErrors((e) => ({ ...e, city: "" }));
                   }}
@@ -438,10 +443,10 @@ export function EditProfileScreen() {
                 />
                 {showCitySuggestions && (citySuggestions.length > 0 || citySearchLoading || cityQuery.trim().length >= 2) && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-gray-100 shadow-lg z-20 overflow-hidden">
-                    {citySearchLoading && citySuggestions.length === 0 ? (
+                    {(citySearchLoading || (!citySearchCompleted && cityQuery.trim().length >= 2)) && citySuggestions.length === 0 ? (
                       <div className="px-4 py-2.5 text-[12px] text-gray-500">Searching cities…</div>
                     ) : null}
-                    {!citySearchLoading && citySuggestions.length === 0 && cityQuery.trim().length >= 2 ? (
+                    {!citySearchLoading && citySearchCompleted && citySuggestions.length === 0 && cityQuery.trim().length >= 2 ? (
                       <div className="px-4 py-2.5 text-[12px] text-gray-500">No city matches found.</div>
                     ) : null}
                     {citySuggestions.map((s) => (

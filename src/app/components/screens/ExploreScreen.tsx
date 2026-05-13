@@ -287,6 +287,7 @@ export function ExploreScreen() {
   const [createProfileGateGoogleSubmitting, setCreateProfileGateGoogleSubmitting] = useState(false);
   const [createProfileGateError, setCreateProfileGateError] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const isOnboardingActive = showOnboarding;
   const [searchFocused, setSearchFocused] = useState(false);
   const [headerAvatarFailed, setHeaderAvatarFailed] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -369,6 +370,18 @@ export function ExploreScreen() {
   const activeSearchCenter = areaDiscoveryMode ? (lastMapCenter ?? searchCenter) : searchCenter;
   const activeSearchRadiusKm = areaDiscoveryMode ? (mapBoundsRadiusKm ?? searchAreaRadiusKm ?? 6.5) : effectiveRadiusKm;
   const activeSearchBounds = areaDiscoveryMode ? mapBounds : null;
+
+  useEffect(() => {
+    if (typeof document === "undefined" || !isOnboardingActive) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOnboardingActive]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -471,6 +484,23 @@ export function ExploreScreen() {
   }, [authModalOpen, guestSessionActive, user]);
 
   useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const shouldForceOnboarding = params.get("onboarding") === "1";
+
+    if (!shouldForceOnboarding) {
+      return;
+    }
+
+    setShowCreateProfileGate(false);
+    setShowOnboarding(true);
+    navigate("/", { replace: true, state: location.state ?? null });
+  }, [location.search, location.state, navigate, user?.id]);
+
+  useEffect(() => {
     if (!showCreateProfileGate) {
       setCreateProfileGateGoogleSubmitting(false);
       setCreateProfileGateError("");
@@ -518,6 +548,13 @@ export function ExploreScreen() {
   }, [enabled, margin, marginEnabled, query, searchRadius, selectedArea, selectedCity, values]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      setExternalLoading(false);
+      setExternalPoolStale(false);
+      setQueryBoostLoading(false);
+      return;
+    }
+
     // Keep external pools while searching so query can always discover unrated venues.
     if (!includeUnratedVenues && !searchNeedsExternal) {
       setExternalPubs([]);
@@ -582,9 +619,15 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
+  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, isOnboardingActive, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      setExternalLoading(false);
+      setExternalPoolStale(false);
+      return;
+    }
+
     if (!areaDiscoveryMode || !includeUnratedVenues) {
       setExternalPoolStale(false);
       return;
@@ -630,9 +673,14 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchBounds, activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, pubs, selectedCity, selectedCountry]);
+  }, [activeSearchBounds, activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, isOnboardingActive, pubs, selectedCity, selectedCountry]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      setQueryBoostLoading(false);
+      return;
+    }
+
     if (areaDiscoveryMode) {
       setQueryBoostLoading(false);
       setQuerySearchScope("radius");
@@ -712,9 +760,13 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, effectiveDebouncedQuery, externalPubs, includeUnratedVenues, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
+  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, effectiveDebouncedQuery, externalPubs, includeUnratedVenues, isOnboardingActive, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
 
   const filtered = useMemo(() => {
+    if (isOnboardingActive) {
+      return [];
+    }
+
     const activeFilters = {
       query: effectiveQuery,
       values,
@@ -821,9 +873,13 @@ export function ExploreScreen() {
     }
 
     return filteredPubs;
-  }, [activeSearchCenter, activeSearchRadiusKm, effectiveHasSliderFilters, effectiveQuery, enabled, externalPubs, hasSearchQuery, includeUnratedVenues, margin, marginEnabled, price, pubs, queryBoostPubs, searchRadius, selectedArea, selectedCity, showTouristHeavyBars, values, venueTypes]);
+  }, [activeSearchCenter, activeSearchRadiusKm, effectiveHasSliderFilters, effectiveQuery, enabled, externalPubs, hasSearchQuery, includeUnratedVenues, isOnboardingActive, margin, marginEnabled, price, pubs, queryBoostPubs, searchRadius, selectedArea, selectedCity, showTouristHeavyBars, values, venueTypes]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     const q = debouncedQuery.trim();
     if (!q) {
       searchFitQueryRef.current = "";
@@ -845,9 +901,13 @@ export function ExploreScreen() {
     setSearchFitPubs(topRelevant);
     setSearchFitToken((token) => token + 1);
     searchFitQueryRef.current = q;
-  }, [debouncedQuery, filtered]);
+  }, [debouncedQuery, filtered, isOnboardingActive]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     if (view !== "map") {
       return;
     }
@@ -873,16 +933,24 @@ export function ExploreScreen() {
     setSelected(topMatch.id);
     setSelectionFocusToken((token) => token + 1);
     autoSelectedSearchQueryRef.current = q;
-  }, [debouncedQuery, filtered, view]);
+  }, [debouncedQuery, filtered, isOnboardingActive, view]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     if (view !== "map" || !hasSearchQuery || !selected) {
       return;
     }
     setSelectionFocusToken((token) => token + 1);
-  }, [hasSearchQuery, selected, view]);
+  }, [hasSearchQuery, isOnboardingActive, selected, view]);
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     const mapVisiblePool = !mapBounds
       ? filtered
       : filtered.filter(
@@ -933,7 +1001,7 @@ export function ExploreScreen() {
 
       return selectionPool[0].id;
     });
-  }, [effectiveHasSliderFilters, filtered, hasSearchQuery, manualMapDeselected, mapBounds, selected, view]);
+  }, [effectiveHasSliderFilters, filtered, hasSearchQuery, isOnboardingActive, manualMapDeselected, mapBounds, selected, view]);
 
   const pubsInCurrentMapView = useMemo(() => {
     if (hasSearchQuery) {
@@ -960,6 +1028,10 @@ export function ExploreScreen() {
   } | null) ?? null;
 
   useEffect(() => {
+    if (isOnboardingActive) {
+      return;
+    }
+
     const shouldFocusBest = Boolean(routeState?.focusBestMatchFromFilter);
     const focusToken = routeState?.focusToken ?? null;
 
@@ -983,7 +1055,7 @@ export function ExploreScreen() {
     setSelectionFocusToken((token) => token + 1);
     handledFilterFocusTokenRef.current = focusToken;
     navigate(".", { replace: true, state: null });
-  }, [effectiveHasSliderFilters, filtered, navigate, routeState]);
+  }, [effectiveHasSliderFilters, filtered, isOnboardingActive, navigate, routeState]);
 
   useEffect(() => {
     displayMapCountRef.current = displayMapCount;
@@ -1347,7 +1419,7 @@ export function ExploreScreen() {
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
       {/* Top bar */}
-      <div className="flex-none px-4 pt-3 pb-2 bg-gradient-to-b from-[#fbf8f3] via-[#fbf8f3]/95 to-transparent z-20">
+      <div className={`flex-none px-4 pt-3 pb-2 bg-gradient-to-b from-[#fbf8f3] via-[#fbf8f3]/95 to-transparent z-20 ${isOnboardingActive ? "pointer-events-none" : ""}`}>
         <div className="flex items-center gap-2">
           <AppLogo className="h-9 w-9" />
           {/* Search bar */}
@@ -1520,7 +1592,7 @@ export function ExploreScreen() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 relative">
+      <div className={`flex-1 relative ${isOnboardingActive ? "pointer-events-none overflow-hidden" : ""}`}>
         {view === "map" ? (
           <>
             <MapView
@@ -1801,7 +1873,9 @@ export function ExploreScreen() {
       ) : null}
 
       {/* Bottom nav */}
-      <BottomNav />
+      <div className={isOnboardingActive ? "pointer-events-none" : ""}>
+        <BottomNav />
+      </div>
     </div>
   );
 }

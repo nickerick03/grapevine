@@ -5,8 +5,9 @@ import { Trophy, Star, MapPin, City } from "@phosphor-icons/react";
 
 import { getLeaderboard, type LeaderboardEntry } from "@/lib/services/profile";
 import { getActiveCup, getCupLeaderboard } from "@/lib/services/cups";
-import { svgMarkupToDataUri } from "@/lib/cup-artwork";
+import { resolveCupArtworkUrl } from "@/lib/cup-artwork";
 import type { CupLeaderboardEntry, CupRecord } from "@/types/cup";
+import { CupDetailDialog } from "@/app/components/cups/CupDetailDialog";
 
 import { useAuth } from "../../context/AuthContext";
 import { BottomNav } from "../BottomNav";
@@ -138,6 +139,7 @@ export function LeaderboardScreen() {
   const [cupEntries, setCupEntries] = useState<CupLeaderboardEntry[]>([]);
   const [cupLoading, setCupLoading] = useState(true);
   const [cupError, setCupError] = useState<string | null>(null);
+  const [cupDetailOpen, setCupDetailOpen] = useState(false);
   const [countdownTick, setCountdownTick] = useState(0);
 
   useEffect(() => {
@@ -261,7 +263,9 @@ export function LeaderboardScreen() {
   };
 
   const cupCountdown = activeCup ? formatCountdown(Math.max(0, activeCup.secondsLeft - countdownTick * 60)) : "";
-  const cupSvgUri = activeCup ? svgMarkupToDataUri(activeCup.svgMarkup) : null;
+  const cupArtworkUri = activeCup
+    ? resolveCupArtworkUrl({ artworkUrl: activeCup.artworkUrl, svgMarkup: activeCup.svgMarkup })
+    : null;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
@@ -307,18 +311,23 @@ export function LeaderboardScreen() {
         {tab === "cup" ? (
           <div className="px-4 pt-3">
             {!cupLoading && !cupError && activeCup ? (
-              <div className="rounded-2xl border border-gray-100 bg-white px-3 py-3 flex items-center gap-3 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
-                {cupSvgUri ? (
-                  <img src={cupSvgUri} alt={`${activeCup.name} artwork`} className="w-14 h-14 rounded-lg border border-gray-100 bg-white object-contain" />
+              <button
+                type="button"
+                onClick={() => setCupDetailOpen(true)}
+                className="w-full rounded-2xl border border-gray-100 bg-white px-3 py-3 flex items-center gap-3 shadow-[0_2px_8px_rgba(0,0,0,0.04)] text-left"
+              >
+                {cupArtworkUri ? (
+                  <img src={cupArtworkUri} alt={`${activeCup.name} artwork`} className="w-14 h-14 rounded-lg border border-gray-100 bg-white object-contain" />
                 ) : (
                   <div className="w-14 h-14 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">🏆</div>
                 )}
                 <div className="min-w-0">
                   <div className="text-[15px] text-gray-900 truncate">{activeCup.name}</div>
                   <div className="text-[12px] text-gray-500">{cupCountdown}</div>
+                  <div className="text-[11px] text-gray-500 truncate">{activeCup.description?.trim() || "No description available."}</div>
                   <div className="text-[11px] text-gray-400">Reward: {activeCup.rewardPoints} all-time pts</div>
                 </div>
-              </div>
+              </button>
             ) : null}
 
             {!cupLoading && !cupError && !activeCup ? (
@@ -375,6 +384,22 @@ export function LeaderboardScreen() {
       </div>
 
       <BottomNav />
+      <CupDetailDialog
+        open={cupDetailOpen}
+        onOpenChange={setCupDetailOpen}
+        cup={
+          activeCup
+            ? {
+                name: activeCup.name,
+                description: activeCup.description,
+                artworkUrl: activeCup.artworkUrl,
+                startAt: activeCup.startAt,
+                endAt: activeCup.endAt,
+                rewardPoints: activeCup.rewardPoints,
+              }
+            : null
+        }
+      />
     </div>
   );
 }

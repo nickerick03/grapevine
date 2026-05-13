@@ -4,7 +4,9 @@ export interface CupRecord {
   startAt: string;
   endAt: string;
   rewardPoints: number;
-  svgMarkup: string;
+  description: string | null;
+  artworkUrl: string | null;
+  svgMarkup: string | null;
   isActive: boolean;
   finalizedAt: string | null;
   createdAt: string;
@@ -35,10 +37,12 @@ export interface CupLeaderboardEntry {
 export interface PublicProfileCupPlacement {
   cupId: string;
   cupName: string;
+  cupDescription: string | null;
+  cupArtworkUrl: string | null;
+  cupRewardPoints: number;
   placement: 1 | 2 | 3;
   cupScore: number;
   rewardPointsAwarded: number;
-  cupSvgMarkup: string | null;
   badgeSvgMarkup: string | null;
   cupStartAt: string | null;
   cupEndAt: string | null;

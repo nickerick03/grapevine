@@ -1,4 +1,4 @@
-import { useMemo, useState, type TouchEventHandler } from "react";
+import { useMemo, useRef, useState, type TouchEventHandler } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { SLIDERS, type SliderKey, type VibeProfile } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
@@ -44,8 +44,11 @@ const slides: OnboardingSlide[] = [
 export function OnboardingModal({ initialValues, onComplete }: OnboardingModalProps) {
   const [index, setIndex] = useState(0);
   const [values, setValues] = useState<VibeProfile>(initialValues);
-  const [touchStartX, setTouchStartX] = useState<number | null>(null);
-  const [touchEndX, setTouchEndX] = useState<number | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const touchEndY = useRef<number | null>(null);
+  const touchBlockedByInteractiveTarget = useRef(false);
 
   const isLast = index === slides.length - 1;
   const currentSlide = slides[index];
@@ -72,25 +75,56 @@ export function OnboardingModal({ initialValues, onComplete }: OnboardingModalPr
   const prev = () => setIndex((prevIndex) => Math.max(0, prevIndex - 1));
 
   const onTouchStart: TouchEventHandler<HTMLDivElement> = (event) => {
-    setTouchStartX(event.changedTouches[0]?.clientX ?? null);
-    setTouchEndX(null);
+    const firstTouch = event.changedTouches[0];
+    touchStartX.current = firstTouch?.clientX ?? null;
+    touchStartY.current = firstTouch?.clientY ?? null;
+    touchEndX.current = null;
+    touchEndY.current = null;
+
+    const target = event.target as HTMLElement | null;
+    touchBlockedByInteractiveTarget.current = Boolean(
+      target?.closest(
+        'input,textarea,select,button,[role="slider"],[data-no-onboarding-swipe="1"]',
+      ),
+    );
   };
 
   const onTouchMove: TouchEventHandler<HTMLDivElement> = (event) => {
-    setTouchEndX(event.changedTouches[0]?.clientX ?? null);
+    const firstTouch = event.changedTouches[0];
+    touchEndX.current = firstTouch?.clientX ?? null;
+    touchEndY.current = firstTouch?.clientY ?? null;
   };
 
   const onTouchEnd: TouchEventHandler<HTMLDivElement> = () => {
-    if (touchStartX == null || touchEndX == null) {
+    if (touchBlockedByInteractiveTarget.current) {
+      touchBlockedByInteractiveTarget.current = false;
       return;
     }
-    const diff = touchStartX - touchEndX;
-    if (Math.abs(diff) < 40) {
+
+    if (
+      touchStartX.current == null
+      || touchEndX.current == null
+      || touchStartY.current == null
+      || touchEndY.current == null
+    ) {
       return;
     }
-    if (diff > 0) {
+
+    const diffX = touchStartX.current - touchEndX.current;
+    const diffY = touchStartY.current - touchEndY.current;
+
+    if (Math.abs(diffX) < 40) {
+      return;
+    }
+
+    // Only treat as swipe if horizontal movement is clearly dominant.
+    if (Math.abs(diffX) <= Math.abs(diffY) * 1.2) {
+      return;
+    }
+
+    if (diffX > 0) {
       next();
-    } else if (diff < 0 && index > 0) {
+    } else if (diffX < 0 && index > 0) {
       prev();
     }
   };
@@ -112,7 +146,10 @@ export function OnboardingModal({ initialValues, onComplete }: OnboardingModalPr
             />
           ) : (
             <div className="h-full p-4 overflow-y-auto bg-gradient-to-b from-[#fffaf2] via-white to-[#fff7eb]">
-              <div className="rounded-2xl border border-[#f3d8a5] bg-white/95 shadow-[0_10px_30px_rgba(250,162,36,0.12)] p-3">
+              <div
+                className="rounded-2xl border border-[#f3d8a5] bg-white/95 shadow-[0_10px_30px_rgba(250,162,36,0.12)] p-3"
+                data-no-onboarding-swipe="1"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#b56d00]">
                     Interactive filters

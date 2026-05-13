@@ -11,7 +11,14 @@ import {
   getAdminCups,
   type CupInput,
 } from "@/lib/services/cups";
-import { sanitizeCupSvgMarkup, svgMarkupToDataUri } from "@/lib/cup-artwork";
+import {
+  CUP_ARTWORK_ACCEPT_ATTRIBUTE,
+  MAX_CUP_DESCRIPTION_LENGTH,
+  resolveCupArtworkUrl,
+  svgMarkupToBase64DataUri,
+  toCupArtworkPayload,
+  validateCupArtworkDataUrl,
+} from "@/lib/cup-artwork";
 import type { CupRecord } from "@/types/cup";
 
 const DEFAULT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" role="img" aria-label="Cup">
@@ -24,6 +31,7 @@ const DEFAULT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 14
   <rect x="10" y="10" width="120" height="120" rx="28" fill="url(#cupDefault)" />
   <text x="70" y="80" text-anchor="middle" font-size="56">🏆</text>
 </svg>`;
+const DEFAULT_ARTWORK_URL = svgMarkupToBase64DataUri(DEFAULT_SVG);
 
 type DraftState = CupInput;
 
@@ -58,6 +66,8 @@ function createDefaultDraft(): DraftState {
     startAt: start.toISOString(),
     endAt: end.toISOString(),
     rewardPoints: 100,
+    description: "",
+    artworkUrl: DEFAULT_ARTWORK_URL,
     svgMarkup: DEFAULT_SVG,
     isActive: false,
   };
@@ -80,10 +90,13 @@ function validateCupDraft(draft: DraftState): string | null {
     return "Reward points must be non-negative.";
   }
 
-  try {
-    sanitizeCupSvgMarkup(draft.svgMarkup);
-  } catch (error) {
-    return error instanceof Error ? error.message : "Cup SVG is invalid.";
+  if (draft.description.length > MAX_CUP_DESCRIPTION_LENGTH) {
+    return `Description is too long. Limit is ${MAX_CUP_DESCRIPTION_LENGTH} characters.`;
+  }
+
+  const artworkError = validateCupArtworkDataUrl(draft.artworkUrl);
+  if (artworkError) {
+    return artworkError;
   }
 
   return null;
@@ -115,13 +128,10 @@ export function AdminCupsScreen() {
     [list, selectedCupId],
   );
 
-  const previewUri = useMemo(() => {
-    try {
-      return svgMarkupToDataUri(sanitizeCupSvgMarkup(draft.svgMarkup));
-    } catch {
-      return null;
-    }
-  }, [draft.svgMarkup]);
+  const previewUri = useMemo(
+    () => resolveCupArtworkUrl({ artworkUrl: draft.artworkUrl, svgMarkup: draft.svgMarkup }),
+    [draft.artworkUrl, draft.svgMarkup],
+  );
 
   const loadCups = async () => {
     setLoading(true);
@@ -161,6 +171,8 @@ export function AdminCupsScreen() {
       startAt: cup.startAt,
       endAt: cup.endAt,
       rewardPoints: cup.rewardPoints,
+      description: cup.description ?? "",
+      artworkUrl: cup.artworkUrl ?? "",
       svgMarkup: cup.svgMarkup,
       isActive: cup.isActive,
     });
@@ -262,16 +274,19 @@ export function AdminCupsScreen() {
     }
   };
 
-  const handleUploadSvg = async (file: File | null) => {
+  const handleUploadArtwork = async (file: File | null) => {
     if (!file) return;
 
     try {
-      const text = await file.text();
-      const sanitized = sanitizeCupSvgMarkup(text);
-      setDraft((previous) => ({ ...previous, svgMarkup: sanitized }));
+      const payload = await toCupArtworkPayload(file);
+      setDraft((previous) => ({
+        ...previous,
+        artworkUrl: payload.artworkUrl,
+        svgMarkup: payload.svgMarkup,
+      }));
       setError(null);
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Could not read SVG file.");
+      setError(uploadError instanceof Error ? uploadError.message : "Could not read image file.");
     }
   };
 
@@ -345,15 +360,29 @@ export function AdminCupsScreen() {
             </label>
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="text-[12px] text-gray-600">Cup SVG artwork</div>
+          <label className="mt-2 block text-[12px] text-gray-600">
+            Cup description
+            <textarea
+              value={draft.description}
+              onChange={(event) => setDraft((previous) => ({ ...previous, description: event.target.value.slice(0, MAX_CUP_DESCRIPTION_LENGTH) }))}
+              rows={3}
+              placeholder="What this Cup celebrates, how points are earned, or any seasonal notes."
+              className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-[12px] outline-none focus:border-gray-400"
+            />
+            <div className="mt-1 text-[10px] text-gray-400">
+              {draft.description.length}/{MAX_CUP_DESCRIPTION_LENGTH}
+            </div>
+          </label>
+
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="text-[12px] text-gray-600">Cup artwork</div>
             <input
               ref={uploadRef}
               type="file"
-              accept="image/svg+xml,.svg"
+              accept={CUP_ARTWORK_ACCEPT_ATTRIBUTE}
               className="hidden"
               onChange={(event) => {
-                void handleUploadSvg(event.target.files?.[0] ?? null);
+                void handleUploadArtwork(event.target.files?.[0] ?? null);
                 event.currentTarget.value = "";
               }}
             />
@@ -363,15 +392,9 @@ export function AdminCupsScreen() {
               className="h-9 px-3 rounded-xl border border-gray-200 text-[12px] text-gray-700 flex items-center gap-1.5"
             >
               <Upload className="w-3.5 h-3.5" />
-              Upload SVG
+              Upload image
             </button>
           </div>
-          <textarea
-            value={draft.svgMarkup}
-            onChange={(event) => setDraft((previous) => ({ ...previous, svgMarkup: event.target.value }))}
-            rows={6}
-            className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-[12px] font-mono outline-none focus:border-gray-400"
-          />
 
           <div className="mt-2 flex items-center gap-2">
             <button
@@ -410,10 +433,14 @@ export function AdminCupsScreen() {
               <img src={previewUri} alt="Cup preview" className="w-14 h-14 rounded-lg object-contain bg-white border border-gray-100" />
               <div>
                 <div className="text-[12px] text-gray-900">Artwork preview</div>
-                <div className="text-[11px] text-gray-500">Renders with safe SVG checks</div>
+                <div className="text-[11px] text-gray-500">Supports SVG, PNG, JPG, JPEG, WebP, GIF, AVIF, and BMP</div>
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div className="mt-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-500">
+              Upload Cup artwork to preview it here.
+            </div>
+          )}
 
           {error ? (
             <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700 flex items-center gap-2">
@@ -440,19 +467,23 @@ export function AdminCupsScreen() {
             <div className="space-y-2">
               {list.map((cup) => {
                 const selected = selectedCupId === cup.id;
-                const cupPreviewUri = svgMarkupToDataUri(cup.svgMarkup);
+                const cupPreviewUri = resolveCupArtworkUrl({ artworkUrl: cup.artworkUrl, svgMarkup: cup.svgMarkup });
                 return (
                   <div
                     key={cup.id}
                     className={`rounded-xl border p-2 ${selected ? "border-gray-900 bg-gray-50" : "border-gray-200 bg-white"}`}
                   >
                     <div className="flex items-center gap-2">
-                      <img src={cupPreviewUri} alt={`${cup.name} preview`} className="w-11 h-11 rounded-lg border border-gray-100 bg-white object-contain" />
+                      {cupPreviewUri ? (
+                        <img src={cupPreviewUri} alt={`${cup.name} preview`} className="w-11 h-11 rounded-lg border border-gray-100 bg-white object-contain" />
+                      ) : (
+                        <div className="w-11 h-11 rounded-lg border border-gray-200 bg-gray-100 flex items-center justify-center text-sm">🏆</div>
+                      )}
                       <div className="flex-1 min-w-0">
-                          <div className="text-[13px] text-gray-900 truncate">{cup.name}</div>
-                          <div className="text-[11px] text-gray-500">
+                        <div className="text-[13px] text-gray-900 truncate">{cup.name}</div>
+                        <div className="text-[11px] text-gray-500">
                           {formatDateRange(cup.startAt, cup.endAt)} · {cup.rewardPoints} pts
-                          </div>
+                        </div>
                         <div className="text-[10px] text-gray-400">
                           {cup.isActive ? "Active" : "Inactive"} · {cup.finalizedAt ? `Finalized ${new Date(cup.finalizedAt).toLocaleString()}` : "Not finalized"}
                         </div>

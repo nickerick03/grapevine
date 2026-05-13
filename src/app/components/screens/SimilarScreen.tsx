@@ -46,6 +46,7 @@ export function SimilarScreen() {
   const [cityQuery, setCityQuery] = useState("");
   const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
   const [citySearchLoading, setCitySearchLoading] = useState(false);
+  const [citySearchCompleted, setCitySearchCompleted] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const listRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -182,6 +183,7 @@ export function SimilarScreen() {
   useEffect(() => {
     if (selectedCityFilter !== "Other") {
       setCitySearchLoading(false);
+      setCitySearchCompleted(false);
       return;
     }
 
@@ -189,19 +191,36 @@ export function SimilarScreen() {
     if (q.length < 2) {
       setCitySuggestions([]);
       setCitySearchLoading(false);
+      setCitySearchCompleted(false);
       return;
     }
 
+    let cancelled = false;
     const controller = new AbortController();
+    setCitySearchCompleted(false);
     const timeout = window.setTimeout(() => {
       setCitySearchLoading(true);
       searchWorldCities(q, controller.signal)
-        .then((suggestions) => setCitySuggestions(suggestions))
-        .catch(() => setCitySuggestions([]))
-        .finally(() => setCitySearchLoading(false));
-    }, 220);
+        .then((suggestions) => {
+          if (!cancelled) {
+            setCitySuggestions(suggestions);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && !controller.signal.aborted) {
+            setCitySuggestions([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setCitySearchLoading(false);
+            setCitySearchCompleted(true);
+          }
+        });
+    }, 160);
 
     return () => {
+      cancelled = true;
       controller.abort();
       window.clearTimeout(timeout);
     };
@@ -404,6 +423,7 @@ export function SimilarScreen() {
               value={cityQuery}
               onChange={(event) => {
                 setCityQuery(event.target.value);
+                setCitySearchCompleted(false);
                 setCityDropdownOpen(true);
               }}
               onFocus={() => setCityDropdownOpen(true)}
@@ -415,10 +435,10 @@ export function SimilarScreen() {
             />
             {cityDropdownOpen ? (
               <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-gray-100 bg-white shadow-lg z-20 overflow-hidden">
-                {citySearchLoading && citySuggestions.length === 0 ? (
+                {(citySearchLoading || (!citySearchCompleted && cityQuery.trim().length >= 2)) && citySuggestions.length === 0 ? (
                   <div className="px-3 py-2 text-[12px] text-gray-500">Searching cities…</div>
                 ) : null}
-                {!citySearchLoading && citySuggestions.length === 0 && cityQuery.trim().length >= 2 ? (
+                {!citySearchLoading && citySearchCompleted && citySuggestions.length === 0 && cityQuery.trim().length >= 2 ? (
                   <div className="px-3 py-2 text-[12px] text-gray-500">No city matches found.</div>
                 ) : null}
                 {citySuggestions.map((city) => (

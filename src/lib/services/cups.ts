@@ -1,5 +1,5 @@
+import { resolveCupArtworkUrl, sanitizeCupSvgMarkup, validateCupArtworkDataUrl } from "@/lib/cup-artwork";
 import { supabase } from "@/lib/supabase/client";
-import { sanitizeCupSvgMarkup } from "@/lib/cup-artwork";
 import type {
   AdminCupFinalizeResult,
   CupLeaderboardEntry,
@@ -15,7 +15,9 @@ type RawCupRow = {
   start_date?: string | null;
   end_date?: string | null;
   reward_points: number;
-  svg_markup: string;
+  description?: string | null;
+  artwork_url?: string | null;
+  svg_markup?: string | null;
   is_active: boolean;
   finalized_at: string | null;
   created_at: string;
@@ -46,10 +48,12 @@ type RawCupLeaderboardRow = {
 type RawCupPlacementRow = {
   cup_id: string;
   cup_name: string;
+  cup_description: string | null;
+  cup_artwork_url: string | null;
+  cup_reward_points: number | string;
   placement: 1 | 2 | 3;
   cup_score: number | string;
   reward_points_awarded: number;
-  cup_svg_markup: string | null;
   badge_svg_markup: string | null;
   cup_start_at?: string | null;
   cup_end_at?: string | null;
@@ -90,7 +94,12 @@ function mapCup(row: RawCupRow): CupRecord {
     startAt,
     endAt,
     rewardPoints: row.reward_points,
-    svgMarkup: row.svg_markup,
+    description: row.description?.trim() || null,
+    artworkUrl: resolveCupArtworkUrl({
+      artworkUrl: row.artwork_url ?? null,
+      svgMarkup: row.svg_markup ?? null,
+    }),
+    svgMarkup: row.svg_markup ?? null,
     isActive: row.is_active,
     finalizedAt: row.finalized_at,
     createdAt: row.created_at,
@@ -145,6 +154,20 @@ function pickSingleRow<T>(data: unknown): T | null {
   return data as T;
 }
 
+function normalizeAdminArtworkInput(input: CupInput): { artworkUrl: string; svgMarkup: string | null } {
+  const artworkUrl = input.artworkUrl.trim();
+  const artworkError = validateCupArtworkDataUrl(artworkUrl);
+  if (artworkError) {
+    throw new Error(artworkError);
+  }
+
+  const svgMarkup = input.svgMarkup?.trim() ? sanitizeCupSvgMarkup(input.svgMarkup) : null;
+  return {
+    artworkUrl,
+    svgMarkup,
+  };
+}
+
 export async function getActiveCup(): Promise<CupRecord | null> {
   const { data, error } = await supabase.rpc("get_active_cup");
   if (error) {
@@ -193,6 +216,23 @@ export async function getCupLeaderboard(limit = 50, cupId?: string): Promise<Cup
   }));
 }
 
+function mapPlacementRow(row: RawCupPlacementRow): PublicProfileCupPlacement {
+  return {
+    cupId: row.cup_id,
+    cupName: row.cup_name,
+    cupDescription: row.cup_description,
+    cupArtworkUrl: row.cup_artwork_url,
+    cupRewardPoints: Math.max(0, Math.round(toNumeric(row.cup_reward_points, 0))),
+    placement: row.placement,
+    cupScore: toNumeric(row.cup_score, 0),
+    rewardPointsAwarded: row.reward_points_awarded,
+    badgeSvgMarkup: row.badge_svg_markup,
+    cupStartAt: row.cup_start_at ?? (row.cup_start_date ? `${row.cup_start_date}T00:00:00.000Z` : null),
+    cupEndAt: row.cup_end_at ?? (row.cup_end_date ? `${row.cup_end_date}T23:59:59.999Z` : null),
+    awardedAt: row.awarded_at,
+  };
+}
+
 export async function getPublicProfileCupPlacements(username: string): Promise<PublicProfileCupPlacement[]> {
   const normalized = username.trim().replace(/^@+/, "");
   if (!normalized) {
@@ -212,18 +252,23 @@ export async function getPublicProfileCupPlacements(username: string): Promise<P
   }
 
   const rows = (data ?? []) as RawCupPlacementRow[];
-  return rows.map((row) => ({
-    cupId: row.cup_id,
-    cupName: row.cup_name,
-    placement: row.placement,
-    cupScore: toNumeric(row.cup_score, 0),
-    rewardPointsAwarded: row.reward_points_awarded,
-    cupSvgMarkup: row.cup_svg_markup,
-    badgeSvgMarkup: row.badge_svg_markup,
-    cupStartAt: row.cup_start_at ?? (row.cup_start_date ? `${row.cup_start_date}T00:00:00.000Z` : null),
-    cupEndAt: row.cup_end_at ?? (row.cup_end_date ? `${row.cup_end_date}T23:59:59.999Z` : null),
-    awardedAt: row.awarded_at,
-  }));
+  return rows.map(mapPlacementRow);
+}
+
+export async function getMyCupPlacements(limit = 50): Promise<PublicProfileCupPlacement[]> {
+  const { data, error } = await supabase.rpc("get_my_cup_placements", {
+    p_limit: limit,
+  });
+
+  if (error) {
+    if (error.code === "42883" || error.code === "PGRST202") {
+      return [];
+    }
+    throwSupabaseError(error);
+  }
+
+  const rows = (data ?? []) as RawCupPlacementRow[];
+  return rows.map(mapPlacementRow);
 }
 
 export interface CupInput {
@@ -231,7 +276,9 @@ export interface CupInput {
   startAt: string;
   endAt: string;
   rewardPoints: number;
-  svgMarkup: string;
+  description: string;
+  artworkUrl: string;
+  svgMarkup: string | null;
   isActive: boolean;
 }
 
@@ -244,12 +291,15 @@ export async function getAdminCups(): Promise<CupRecord[]> {
 }
 
 export async function adminCreateCup(input: CupInput): Promise<CupRecord> {
+  const { artworkUrl, svgMarkup } = normalizeAdminArtworkInput(input);
   const { data, error } = await supabase.rpc("admin_create_cup", {
     p_name: input.name.trim(),
     p_start_at: input.startAt,
     p_end_at: input.endAt,
     p_reward_points: Math.max(0, Math.round(input.rewardPoints)),
-    p_svg_markup: sanitizeCupSvgMarkup(input.svgMarkup),
+    p_description: input.description.trim() || null,
+    p_artwork_url: artworkUrl,
+    p_svg_markup: svgMarkup,
     p_is_active: input.isActive,
   });
   if (error) {
@@ -264,13 +314,16 @@ export async function adminCreateCup(input: CupInput): Promise<CupRecord> {
 }
 
 export async function adminUpdateCup(cupId: string, input: CupInput): Promise<CupRecord> {
+  const { artworkUrl, svgMarkup } = normalizeAdminArtworkInput(input);
   const { data, error } = await supabase.rpc("admin_update_cup", {
     p_cup_id: cupId,
     p_name: input.name.trim(),
     p_start_at: input.startAt,
     p_end_at: input.endAt,
     p_reward_points: Math.max(0, Math.round(input.rewardPoints)),
-    p_svg_markup: sanitizeCupSvgMarkup(input.svgMarkup),
+    p_description: input.description.trim() || null,
+    p_artwork_url: artworkUrl,
+    p_svg_markup: svgMarkup,
     p_is_active: input.isActive,
   });
   if (error) {

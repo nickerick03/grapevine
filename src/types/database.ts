@@ -80,6 +80,8 @@ export interface CupRowRecord {
   start_date?: string | null;
   end_date?: string | null;
   reward_points: number;
+  description: string | null;
+  artwork_url: string | null;
   svg_markup: string;
   is_active: boolean;
   finalized_at: string | null;

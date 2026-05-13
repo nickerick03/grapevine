@@ -9,10 +9,15 @@ import { AdUnit } from "../AdUnit";
 import { BottomNav } from "../BottomNav";
 import { deleteOwnRating, getRatingsByUser, getSavedPlaceIds } from "@/lib/services/places";
 import { getGrapevineScoreByUserId, type GrapevineScoreBreakdown } from "@/lib/services/profile";
+import { getMyCupPlacements } from "@/lib/services/cups";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
 import { type Pub } from "../vibe";
 import { AuthScreen } from "./AuthScreen";
 import { formatPubAddress } from "../placeAddress";
+import { resolveCupArtworkUrl } from "@/lib/cup-artwork";
+import type { PublicProfileCupPlacement } from "@/types/cup";
+import { formatCupPeriod, getCupPlacementEmoji, getCupPlacementHeadline, getCupPlacementPointsLine } from "@/lib/cup-display";
+import { CupDetailDialog } from "@/app/components/cups/CupDetailDialog";
 
 const CONTRIBUTION_TRAITS: Array<{
   key: keyof Pick<
@@ -98,6 +103,9 @@ export function ProfileScreen() {
   const [deletingRatingId, setDeletingRatingId] = useState<string | null>(null);
   const [pendingDeleteRatingId, setPendingDeleteRatingId] = useState<string | null>(null);
   const [scoreExpanded, setScoreExpanded] = useState(false);
+  const [cupPlacements, setCupPlacements] = useState<PublicProfileCupPlacement[]>([]);
+  const [cupPlacementsLoading, setCupPlacementsLoading] = useState(false);
+  const [selectedCupPlacement, setSelectedCupPlacement] = useState<PublicProfileCupPlacement | null>(null);
   const [scoreBreakdown, setScoreBreakdown] = useState<GrapevineScoreBreakdown>({
     baseScore: 0,
     cupRewardPoints: 0,
@@ -114,6 +122,8 @@ export function ProfileScreen() {
       setSavedIds([]);
       setRatingCount(0);
       setUserRatings([]);
+      setCupPlacements([]);
+      setCupPlacementsLoading(false);
       return;
     }
     const userId = user.id;
@@ -121,23 +131,29 @@ export function ProfileScreen() {
     let cancelled = false;
 
     async function loadProfileActivity() {
+      setCupPlacementsLoading(true);
       try {
-        const [ids, ratings, score] = await Promise.all([
+        const [ids, ratings, score, placements] = await Promise.all([
           getSavedPlaceIds(userId),
           getRatingsByUser(userId, 100),
           getGrapevineScoreByUserId(userId),
+          getMyCupPlacements(50),
         ]);
         if (!cancelled) {
           setSavedIds(ids);
           setRatingCount(ratings.length);
           setUserRatings(ratings.slice(0, 12));
           setScoreBreakdown(score);
+          setCupPlacements(placements);
+          setCupPlacementsLoading(false);
         }
       } catch {
         if (!cancelled) {
           setSavedIds([]);
           setRatingCount(0);
           setUserRatings([]);
+          setCupPlacements([]);
+          setCupPlacementsLoading(false);
           setScoreBreakdown({
             baseScore: 0,
             cupRewardPoints: 0,
@@ -156,6 +172,12 @@ export function ProfileScreen() {
     return () => {
       cancelled = true;
     };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setSelectedCupPlacement(null);
+    }
   }, [user]);
 
   const savedPlaces = useMemo<Pub[]>(
@@ -331,6 +353,57 @@ export function ProfileScreen() {
           </div>
         </div>
 
+        <div className="px-4 pb-4">
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.05)] p-4">
+            <div className="flex items-center gap-2 text-gray-900 mb-2">
+              <Trophy weight="duotone" size={16} className="text-amber-500" />
+              <span className="text-[14px]">Cup Honors</span>
+            </div>
+            {cupPlacementsLoading ? (
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12px] text-gray-500">
+                Loading Cup honors...
+              </div>
+            ) : cupPlacements.length === 0 ? (
+              <div className="rounded-2xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-[12px] text-gray-600">
+                No Cup wins yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {cupPlacements.map((placement) => {
+                  const placementArtworkUri = placement.placement === 1
+                    ? resolveCupArtworkUrl({ artworkUrl: placement.cupArtworkUrl, svgMarkup: null })
+                    : resolveCupArtworkUrl({ artworkUrl: null, svgMarkup: placement.badgeSvgMarkup })
+                      ?? resolveCupArtworkUrl({ artworkUrl: placement.cupArtworkUrl, svgMarkup: null });
+
+                  return (
+                    <button
+                      key={`${placement.cupId}:${placement.placement}`}
+                      type="button"
+                      onClick={() => setSelectedCupPlacement(placement)}
+                      className="w-full text-left rounded-2xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3 hover:border-gray-200 transition-colors"
+                    >
+                      <div className="w-12 h-12 rounded-xl border border-gray-100 bg-white flex items-center justify-center overflow-hidden">
+                        {placementArtworkUri ? (
+                          <img src={placementArtworkUri} alt={`${placement.cupName} placement`} className="w-full h-full object-contain" />
+                        ) : (
+                          <span className="text-xl">{getCupPlacementEmoji(placement.placement)}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[13px] text-gray-900 truncate">{getCupPlacementHeadline(placement)}</div>
+                        <div className="text-[11px] text-gray-600">{getCupPlacementPointsLine(placement)}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {formatCupPeriod(placement.cupStartAt, placement.cupEndAt, placement.awardedAt)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Add New Place CTA — hidden, kept for future use */}
         {false && (
           <div className="px-4 pb-4">
@@ -436,6 +509,31 @@ export function ProfileScreen() {
       </div>
 
       <BottomNav />
+      <CupDetailDialog
+        open={Boolean(selectedCupPlacement)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedCupPlacement(null);
+          }
+        }}
+        cup={
+          selectedCupPlacement
+            ? {
+                name: selectedCupPlacement.cupName,
+                description: selectedCupPlacement.cupDescription,
+                artworkUrl: selectedCupPlacement.cupArtworkUrl,
+                startAt: selectedCupPlacement.cupStartAt,
+                endAt: selectedCupPlacement.cupEndAt,
+                rewardPoints: selectedCupPlacement.cupRewardPoints,
+                placement: selectedCupPlacement.placement,
+                cupScore: selectedCupPlacement.cupScore,
+                rewardPointsAwarded: selectedCupPlacement.rewardPointsAwarded,
+                awardedAt: selectedCupPlacement.awardedAt,
+                badgeSvgMarkup: selectedCupPlacement.badgeSvgMarkup,
+              }
+            : null
+        }
+      />
 
       {pendingDeleteRatingId ? (
         <div

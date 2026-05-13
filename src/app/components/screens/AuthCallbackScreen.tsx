@@ -21,6 +21,7 @@ const CALLBACK_WATCHDOG_MS = 18000;
 const SESSION_VERIFICATION_ATTEMPTS = 20;
 const SESSION_VERIFICATION_INTERVAL_MS = 250;
 const AUTH_CALLBACK_FLOW_HINT_KEY = "grapevine.auth.callbackFlow";
+const EXPLORE_ONBOARDING_DONE_KEY = "grapevine.explore.onboardingDone.v1";
 const GOOGLE_PROVIDER = "google";
 
 type SuccessAction = {
@@ -140,6 +141,22 @@ function clearStoredCallbackFlowHint() {
     window.sessionStorage.removeItem(AUTH_CALLBACK_FLOW_HINT_KEY);
   } catch {
     // no-op
+  }
+}
+
+function hasCompletedOnboardingLocally(userId: string | null | undefined): boolean {
+  if (!userId || typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(EXPLORE_ONBOARDING_DONE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return false;
+    return parsed.some((value) => typeof value === "string" && value === userId);
+  } catch {
+    return false;
   }
 }
 
@@ -387,10 +404,17 @@ export function AuthCallbackScreen() {
           return;
         }
 
-        const needsOnboarding = !hasRequiredOnboarding(currentUser, profile);
+        const needsOnboarding = callbackFlow === "google"
+          ? !hasCompletedOnboardingLocally(currentUser?.id)
+          : !hasRequiredOnboarding(currentUser, profile);
+
+        const successPath = callbackFlow === "google"
+          ? (needsOnboarding ? "/?onboarding=1" : "/")
+          : (needsOnboarding ? "/edit-profile?onboarding=1" : "/");
+
         setSuccessAction({
           label: needsOnboarding ? "Continue to onboarding" : "Continue to Explore",
-          path: needsOnboarding ? "/edit-profile?onboarding=1" : "/",
+          path: successPath,
         });
         setState({
           status: "success",
