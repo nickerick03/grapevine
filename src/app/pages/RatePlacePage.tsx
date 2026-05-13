@@ -124,7 +124,7 @@ export function RatePlacePage() {
           message="Please sign in to submit or update your rating for this place."
         />
         <div className="flex flex-wrap gap-2">
-          <button onClick={openAuthModal} className="rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
+          <button onClick={() => openAuthModal()} className="rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
             Sign in with magic link
           </button>
           <Link to={`/places/${place.slug}`} className="rounded-full border border-gray-200 bg-white px-4 py-2 text-[13px] text-gray-800">

@@ -19,7 +19,7 @@ export function AuthButton() {
 
   return (
     <button
-      onClick={openAuthModal}
+      onClick={() => openAuthModal()}
       className="rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white transition hover:bg-gray-800"
     >
       Sign in

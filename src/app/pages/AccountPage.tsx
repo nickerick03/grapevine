@@ -105,7 +105,7 @@ export function AccountPage() {
     return (
       <div className="absolute inset-0 overflow-y-auto space-y-4 bg-[#fbf8f3] px-4 py-4 pb-[76px]">
         <EmptyState title="You are not signed in" message="Sign in to view your account, ratings, and saved places." />
-        <button onClick={openAuthModal} className="rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
+        <button onClick={() => openAuthModal()} className="rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
           Sign in with magic link
         </button>
       </div>

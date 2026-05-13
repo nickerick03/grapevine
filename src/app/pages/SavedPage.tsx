@@ -60,7 +60,7 @@ export function SavedPage() {
     return (
       <div className="absolute inset-0 overflow-y-auto px-4 pt-4 pb-[76px]">
         <EmptyState title="Sign in required" message="Sign in to save places and access them here." />
-        <button onClick={openAuthModal} className="mt-3 rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
+        <button onClick={() => openAuthModal()} className="mt-3 rounded-full bg-gray-900 px-4 py-2 text-[13px] text-white">
           Sign in with magic link
         </button>
       </div>

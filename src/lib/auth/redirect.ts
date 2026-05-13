@@ -1,4 +1,5 @@
 const AUTH_CALLBACK_PATH = "/auth/callback";
+const GOOGLE_PROVIDER = "google";
 
 function trimTrailingSlash(value: string): string {
   if (!value) {
@@ -56,6 +57,12 @@ export function getSiteUrl(): string {
 
 export function getAuthCallbackUrl(): string {
   return `${getSiteUrl()}${AUTH_CALLBACK_PATH}`;
+}
+
+export function getGoogleAuthCallbackUrl(): string {
+  const callbackUrl = new URL(getAuthCallbackUrl());
+  callbackUrl.searchParams.set("provider", GOOGLE_PROVIDER);
+  return callbackUrl.toString();
 }
 
 export function getPasswordResetCallbackUrl(): string {

@@ -130,7 +130,7 @@ export function SavedScreen() {
               Your saved bars will appear here after you sign in.
             </div>
             <button
-              onClick={openAuthModal}
+              onClick={() => openAuthModal()}
               className="mt-5 px-5 py-2.5 rounded-full bg-gray-900 text-white text-[13px]"
             >
               Log in

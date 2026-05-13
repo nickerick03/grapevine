@@ -10,7 +10,7 @@ import {
 } from "@/lib/services/profile";
 import { isAtLeastAge, MINIMUM_REGISTER_AGE } from "@/lib/auth/ageGate";
 import { normalizeUsernameInput, validateUsername } from "@/lib/auth/username";
-import { getAuthCallbackUrl, getPasswordResetCallbackUrl } from "@/lib/auth/redirect";
+import { getAuthCallbackUrl, getGoogleAuthCallbackUrl, getPasswordResetCallbackUrl } from "@/lib/auth/redirect";
 import { supabase } from "@/lib/supabase/client";
 import type { ProfileRecord } from "@/types/database";
 
@@ -102,6 +102,7 @@ const AuthContext = createContext<AuthContextType>({
 const AUTH_REMEMBER_KEY = "grapevine.auth.remember";
 const AUTH_EPHEMERAL_KEY = "grapevine.auth.ephemeral";
 const AUTH_REMEMBERED_EMAIL_KEY = "grapevine.auth.remembered_email";
+const AUTH_CALLBACK_FLOW_HINT_KEY = "grapevine.auth.callbackFlow";
 const AUTH_TIMEOUT_MS = 12000;
 const PROFILE_TIMEOUT_MS = 8000;
 
@@ -252,6 +253,140 @@ async function loadOwnProfile(userId: string): Promise<ProfileRecord | null> {
   return data;
 }
 
+function isProfileMissingColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) {
+    return false;
+  }
+  return error.code === "42703" || error.message?.toLowerCase().includes("does not exist") || false;
+}
+
+function isUniqueUsernameConstraintError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) {
+    return false;
+  }
+  const message = error.message?.toLowerCase() ?? "";
+  return error.code === "23505" && message.includes("username");
+}
+
+function profileSeedUsername(user: SupabaseUser): string | null {
+  const metadataUsername = normalizeUsernameInput(
+    typeof user.user_metadata?.username === "string" ? user.user_metadata.username : "",
+  );
+  if (metadataUsername) {
+    return metadataUsername;
+  }
+  const fallback = normalizeUsernameInput(displayNameFromEmail(user.email ?? "").replace(/\s+/g, "_").toLowerCase());
+  return fallback || null;
+}
+
+function profileSeedBirthDate(user: SupabaseUser): string | null {
+  const metadataBirthDate = typeof user.user_metadata?.birth_date === "string"
+    ? user.user_metadata.birth_date.trim()
+    : "";
+  if (!metadataBirthDate) {
+    return null;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(metadataBirthDate)) {
+    return null;
+  }
+  return metadataBirthDate;
+}
+
+async function createOwnProfileFromAuthUser(user: SupabaseUser): Promise<ProfileRecord | null> {
+  const username = profileSeedUsername(user);
+  const birthDate = profileSeedBirthDate(user);
+
+  const insertCandidate = async (
+    payload: { id: string; username?: string | null; birth_date?: string | null },
+  ): Promise<{ profile: ProfileRecord | null; shouldRetryWithoutUsername: boolean }> => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (!error) {
+      return { profile: data, shouldRetryWithoutUsername: false };
+    }
+
+    if (isProfileMissingColumnError(error)) {
+      const fallbackPayload: { id: string; username?: string | null } = {
+        id: payload.id,
+      };
+      if ("username" in payload) {
+        fallbackPayload.username = payload.username ?? null;
+      }
+
+      const fallbackResult = await supabase
+        .from("profiles")
+        .insert(fallbackPayload)
+        .select("*")
+        .single();
+
+      if (!fallbackResult.error) {
+        return { profile: fallbackResult.data, shouldRetryWithoutUsername: false };
+      }
+
+      if (isUniqueUsernameConstraintError(fallbackResult.error)) {
+        return { profile: null, shouldRetryWithoutUsername: true };
+      }
+
+      if (fallbackResult.error.code === "23505") {
+        const existingProfile = await loadOwnProfile(user.id);
+        if (existingProfile) {
+          return { profile: existingProfile, shouldRetryWithoutUsername: false };
+        }
+      }
+
+      throw fallbackResult.error;
+    }
+
+    if (isUniqueUsernameConstraintError(error)) {
+      return { profile: null, shouldRetryWithoutUsername: true };
+    }
+
+    if (error.code === "23505") {
+      const existingProfile = await loadOwnProfile(user.id);
+      if (existingProfile) {
+        return { profile: existingProfile, shouldRetryWithoutUsername: false };
+      }
+    }
+
+    throw error;
+  };
+
+  const initialPayload: { id: string; username?: string | null; birth_date?: string | null } = {
+    id: user.id,
+  };
+  if (username) {
+    initialPayload.username = username;
+  }
+  if (birthDate) {
+    initialPayload.birth_date = birthDate;
+  }
+
+  const initialResult = await insertCandidate(initialPayload);
+  if (initialResult.profile) {
+    return initialResult.profile;
+  }
+
+  if (initialResult.shouldRetryWithoutUsername) {
+    const retryPayload: { id: string; username?: string | null; birth_date?: string | null } = {
+      id: user.id,
+      username: null,
+    };
+    if (birthDate) {
+      retryPayload.birth_date = birthDate;
+    }
+    const retryResult = await insertCandidate(retryPayload);
+    if (retryResult.profile) {
+      return retryResult.profile;
+    }
+  }
+
+  return loadOwnProfile(user.id);
+}
+
 function persistRememberPreference(remember: boolean) {
   if (typeof window === "undefined") {
     return;
@@ -348,7 +483,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const loadedProfile = await withProfileTimeout(loadOwnProfile(nextUser.id));
+      let loadedProfile = await withProfileTimeout(loadOwnProfile(nextUser.id));
+      if (!loadedProfile) {
+        loadedProfile = await withProfileTimeout(createOwnProfileFromAuthUser(nextUser));
+      }
       setProfile(loadedProfile);
       setUser(toAuthUser(nextUser, loadedProfile));
     } catch (profileError) {
@@ -719,7 +857,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle: AuthContextType["signInWithGoogle"] = async () => {
     try {
-      const callbackUrl = getAuthCallbackUrl();
+      persistRememberPreference(rememberMe);
+      if (typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(AUTH_CALLBACK_FLOW_HINT_KEY, "google");
+        } catch (storageError) {
+          console.warn("Failed to persist auth callback flow hint:", storageError);
+        }
+      }
+
+      const callbackUrl = getGoogleAuthCallbackUrl();
       const { error } = await withAuthTimeout(
         supabase.auth.signInWithOAuth({
           provider: "google",
@@ -734,11 +881,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (error) {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(AUTH_CALLBACK_FLOW_HINT_KEY);
+        }
         return { error: normalizeAuthErrorMessage(error.message) };
       }
 
       return { error: null };
     } catch (err) {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(AUTH_CALLBACK_FLOW_HINT_KEY);
+      }
       const message = err instanceof Error ? err.message : "Google sign-in failed. Please try again.";
       return { error: message };
     }

@@ -15,10 +15,20 @@ type CallbackState = {
   message: string;
 };
 
-const AUTO_REDIRECT_MS = 1600;
 const RESET_MODE = "reset";
 const AUTH_STEP_TIMEOUT_MS = 9000;
 const CALLBACK_WATCHDOG_MS = 18000;
+const SESSION_VERIFICATION_ATTEMPTS = 20;
+const SESSION_VERIFICATION_INTERVAL_MS = 250;
+const AUTH_CALLBACK_FLOW_HINT_KEY = "grapevine.auth.callbackFlow";
+const GOOGLE_PROVIDER = "google";
+
+type SuccessAction = {
+  label: string;
+  path: string;
+};
+
+type CallbackFlow = "email" | "recovery" | "google";
 
 const EMAIL_OTP_TYPES = new Set<EmailOtpType>([
   "signup",
@@ -34,13 +44,40 @@ function hashParams(hash: string): URLSearchParams {
   return new URLSearchParams(raw);
 }
 
-function buildFriendlyAuthError(errorCode: string | null, errorDescription: string | null): string {
+function buildFriendlyAuthError(errorCode: string | null, errorDescription: string | null, flow: CallbackFlow): string {
   const normalizedCode = (errorCode ?? "").toLowerCase();
-  let normalizedDescription = "";
+  let decodedDescription = errorDescription?.trim() ?? "";
   try {
-    normalizedDescription = decodeURIComponent(errorDescription ?? "").toLowerCase();
+    decodedDescription = decodeURIComponent(errorDescription ?? "").trim();
   } catch {
-    normalizedDescription = (errorDescription ?? "").toLowerCase();
+    decodedDescription = (errorDescription ?? "").trim();
+  }
+  const normalizedDescription = decodedDescription.toLowerCase();
+
+  if (flow === "google") {
+    if (
+      normalizedCode.includes("access_denied")
+      || normalizedDescription.includes("access_denied")
+      || normalizedDescription.includes("denied")
+      || normalizedDescription.includes("cancel")
+    ) {
+      return "Google sign-in was canceled. Please try again.";
+    }
+
+    if (normalizedCode.includes("provider_disabled") || normalizedDescription.includes("provider_disabled")) {
+      return "Google sign-in is currently unavailable. Please try another sign-in method.";
+    }
+
+    if (normalizedCode.includes("provider_email_needs_verification") || normalizedDescription.includes("needs_verification")) {
+      return "Google did not return a verified email address. Please verify your Google account email and try again.";
+    }
+
+    if (decodedDescription) {
+      const first = decodedDescription.charAt(0).toUpperCase();
+      return `${first}${decodedDescription.slice(1)}`;
+    }
+
+    return "We could not complete Google sign-in. Please try again.";
   }
 
   if (
@@ -48,7 +85,9 @@ function buildFriendlyAuthError(errorCode: string | null, errorDescription: stri
     || normalizedDescription.includes("expired")
     || normalizedDescription.includes("otp_expired")
   ) {
-    return "This confirmation link expired. Please request a new verification email and try again.";
+    return flow === "recovery"
+      ? "This reset link expired. Please request a new password reset email."
+      : "This confirmation link expired. Please request a new verification email and try again.";
   }
 
   if (
@@ -57,15 +96,19 @@ function buildFriendlyAuthError(errorCode: string | null, errorDescription: stri
     || normalizedDescription.includes("invalid")
     || normalizedDescription.includes("denied")
   ) {
-    return "This confirmation link is invalid or already used. Please request a new verification email.";
+    return flow === "recovery"
+      ? "This reset link is invalid or already used. Please request a new one."
+      : "This confirmation link is invalid or already used. Please request a new verification email.";
   }
 
-  if (normalizedDescription) {
-    const first = normalizedDescription.charAt(0).toUpperCase();
-    return `${first}${normalizedDescription.slice(1)}`;
+  if (decodedDescription) {
+    const first = decodedDescription.charAt(0).toUpperCase();
+    return `${first}${decodedDescription.slice(1)}`;
   }
 
-  return "We could not verify this link. Please request a new confirmation email.";
+  return flow === "recovery"
+    ? "We could not verify this reset link. Please request a new one."
+    : "We could not verify this link. Please request a new confirmation email.";
 }
 
 function readAuthErrors(search: URLSearchParams, hash: URLSearchParams): { code: string | null; description: string | null } {
@@ -76,6 +119,90 @@ function readAuthErrors(search: URLSearchParams, hash: URLSearchParams): { code:
 
 function readAuthType(search: URLSearchParams, hash: URLSearchParams): string | null {
   return search.get("type") ?? hash.get("type");
+}
+
+function readStoredCallbackFlowHint(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  try {
+    return window.sessionStorage.getItem(AUTH_CALLBACK_FLOW_HINT_KEY)?.trim().toLowerCase() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function clearStoredCallbackFlowHint() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage.removeItem(AUTH_CALLBACK_FLOW_HINT_KEY);
+  } catch {
+    // no-op
+  }
+}
+
+function buildErrorTitle(flow: CallbackFlow): string {
+  if (flow === "recovery") {
+    return "Reset link failed";
+  }
+  if (flow === "google") {
+    return "Google sign-in failed";
+  }
+  return "Verification link failed";
+}
+
+function buildWatchdogTitle(flow: CallbackFlow): string {
+  if (flow === "recovery") {
+    return "Reset verification took too long";
+  }
+  if (flow === "google") {
+    return "Google sign-in took too long";
+  }
+  return "Verification took too long";
+}
+
+function buildWatchdogMessage(flow: CallbackFlow): string {
+  if (flow === "recovery") {
+    return "We could not finish reset verification in time. Please request a new reset email.";
+  }
+  if (flow === "google") {
+    return "We could not finish Google sign-in in time. Please try signing in again.";
+  }
+  return "We could not finish verification in time. Please return to login and request a new link.";
+}
+
+function buildMissingSessionMessage(flow: CallbackFlow): string {
+  if (flow === "recovery") {
+    return "The reset link opened without a valid reset session. Please request a new reset email.";
+  }
+  if (flow === "google") {
+    return "Google sign-in completed, but we could not create a session. Please try signing in with Google again.";
+  }
+  return "Your email is confirmed, but we couldn't create a login session from this link. Please return to the app and log in.";
+}
+
+function buildProcessingState(flow: CallbackFlow): CallbackState {
+  if (flow === "recovery") {
+    return {
+      status: "processing",
+      title: "Verifying your reset link...",
+      message: "Please hold on while we securely verify your reset request.",
+    };
+  }
+  if (flow === "google") {
+    return {
+      status: "processing",
+      title: "Finishing Google sign-in...",
+      message: "Please hold on while we securely sign you in.",
+    };
+  }
+  return {
+    status: "processing",
+    title: "Confirming your account...",
+    message: "Please hold on while we securely verify your email.",
+  };
 }
 
 function wait(ms: number): Promise<void> {
@@ -115,21 +242,36 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMessage: string, timeo
 export function AuthCallbackScreen() {
   const location = useLocation();
   const navigate = useNavigate();
-  const handledRef = useRef(false);
+  const callbackPayloadRef = useRef({ search: location.search, hash: location.hash });
   const [state, setState] = useState<CallbackState>({
     status: "processing",
     title: "Confirming your account...",
     message: "Please hold on while we securely verify your email.",
   });
+  const [successAction, setSuccessAction] = useState<SuccessAction | null>(null);
 
   useEffect(() => {
-    if (handledRef.current) {
-      return;
-    }
-    handledRef.current = true;
+    const search = new URLSearchParams(callbackPayloadRef.current.search);
+    const hash = hashParams(callbackPayloadRef.current.hash);
+    const authType = readAuthType(search, hash);
+    const mode = search.get("mode");
+    const code = search.get("code");
+    const tokenHash = search.get("token_hash");
+    const type = search.get("type");
+    const hashAccessToken = hash.get("access_token");
+    const hashRefreshToken = hash.get("refresh_token");
+    const authFlowHint = readStoredCallbackFlowHint();
+    const providerFromCallback = (search.get("provider") ?? hash.get("provider") ?? authFlowHint).trim().toLowerCase();
+    const hasEmailOtpType = Boolean(authType && EMAIL_OTP_TYPES.has(authType as EmailOtpType));
+    const isRecoveryFlow = mode === RESET_MODE || authType === "recovery";
+    const looksLikeOAuthCodeFlow = Boolean(code) && !tokenHash && !hasEmailOtpType;
+    const isGoogleFlow = providerFromCallback === GOOGLE_PROVIDER || (!isRecoveryFlow && looksLikeOAuthCodeFlow);
+    const callbackFlow: CallbackFlow = isRecoveryFlow ? "recovery" : isGoogleFlow ? "google" : "email";
+    const hasAuthPayload = Boolean(code || tokenHash || hashAccessToken || hashRefreshToken);
+
+    setState(buildProcessingState(callbackFlow));
 
     let active = true;
-    let redirectTimeout: ReturnType<typeof setTimeout> | null = null;
     const watchdogTimeout = setTimeout(() => {
       if (!active) {
         return;
@@ -140,69 +282,33 @@ export function AuthCallbackScreen() {
         }
         return {
           status: "error",
-          title: "Verification took too long",
-          message: "We could not finish verification in time. Please return to login and request a new link.",
+          title: buildWatchdogTitle(callbackFlow),
+          message: buildWatchdogMessage(callbackFlow),
         };
       });
     }, CALLBACK_WATCHDOG_MS);
 
     const run = async () => {
-      const search = new URLSearchParams(location.search);
-      const hash = hashParams(location.hash);
       const authError = readAuthErrors(search, hash);
-      const authType = readAuthType(search, hash);
-      const mode = search.get("mode");
-      const isRecoveryFlow = mode === RESET_MODE || authType === "recovery";
 
       if (authError.code || authError.description) {
         if (!active) {
           return;
         }
+        setSuccessAction(null);
         setState({
           status: "error",
-          title: isRecoveryFlow ? "Reset link failed" : "Verification link failed",
-          message: buildFriendlyAuthError(authError.code, authError.description),
+          title: buildErrorTitle(callbackFlow),
+          message: buildFriendlyAuthError(authError.code, authError.description, callbackFlow),
         });
         return;
       }
 
       try {
-        const code = search.get("code");
-        const tokenHash = search.get("token_hash");
-        const type = search.get("type");
-        const hashAccessToken = hash.get("access_token");
-        const hashRefreshToken = hash.get("refresh_token");
-        const hasAuthPayload = Boolean(code || tokenHash || hashAccessToken || hashRefreshToken);
-
-        if (!hasAuthPayload) {
-          const { data: quickSession, error: quickSessionError } = await withTimeout(
-            supabase.auth.getSession(),
-            "We couldn't verify this link in time.",
-          );
-
-          if (quickSessionError) {
-            throw quickSessionError;
-          }
-
-          if (!quickSession.session?.user) {
-            if (!active) {
-              return;
-            }
-            setState({
-              status: "error",
-              title: isRecoveryFlow ? "Reset link opened" : "Email verified",
-              message: isRecoveryFlow
-                ? "The reset link opened without a valid reset session. Please request a new reset email."
-                : "Your email is confirmed, but we couldn't create a login session from this link. Please return to the app and log in.",
-            });
-            return;
-          }
-        }
-
         if (code) {
           const { error } = await withTimeout(
             supabase.auth.exchangeCodeForSession(code),
-            "The verification link timed out.",
+            callbackFlow === "google" ? "Google sign-in timed out." : "The verification link timed out.",
           );
           if (error) {
             const message = error.message?.toLowerCase() ?? "";
@@ -220,16 +326,16 @@ export function AuthCallbackScreen() {
               token_hash: tokenHash,
               type: type as EmailOtpType,
             }),
-            "The verification link timed out.",
+            callbackFlow === "recovery" ? "Reset link verification timed out." : "The verification link timed out.",
           );
           if (error) {
             throw error;
           }
         }
 
-        // detectSessionInUrl can resolve asynchronously in the browser, so retry briefly.
+        // detectSessionInUrl can resolve asynchronously in the browser, so retry before showing an error.
         let sessionUserFound = false;
-        for (let attempt = 0; attempt < 8; attempt += 1) {
+        for (let attempt = 0; attempt < SESSION_VERIFICATION_ATTEMPTS; attempt += 1) {
           const { data, error } = await withTimeout(
             supabase.auth.getSession(),
             "Session verification timed out.",
@@ -241,11 +347,15 @@ export function AuthCallbackScreen() {
             sessionUserFound = true;
             break;
           }
-          await wait(250);
+          await wait(SESSION_VERIFICATION_INTERVAL_MS);
         }
 
         if (!sessionUserFound) {
-          throw new Error("No active session found after verification.");
+          throw new Error(
+            hasAuthPayload
+              ? "No active session found after callback verification."
+              : buildMissingSessionMessage(callbackFlow),
+          );
         }
 
         if (!active) {
@@ -265,41 +375,43 @@ export function AuthCallbackScreen() {
         }
 
         if (isRecoveryFlow) {
+          setSuccessAction({
+            label: "Continue to reset password",
+            path: "/auth/reset",
+          });
           setState({
             status: "success",
             title: "Reset link verified",
             message: "You can now set a new password.",
           });
-
-          redirectTimeout = setTimeout(() => {
-            navigate("/auth/reset", { replace: true });
-          }, 600);
           return;
         }
 
+        const needsOnboarding = !hasRequiredOnboarding(currentUser, profile);
+        setSuccessAction({
+          label: needsOnboarding ? "Continue to onboarding" : "Continue to Explore",
+          path: needsOnboarding ? "/edit-profile?onboarding=1" : "/",
+        });
         setState({
           status: "success",
-          title: "Registration verified",
-          message: "Your account is confirmed and you are now signed in.",
+          title: callbackFlow === "google" ? "Google sign-in complete" : "Verification complete",
+          message: callbackFlow === "google"
+            ? "You're signed in with Google and your account is ready."
+            : "Your account is ready and you're signed in.",
         });
-
-        redirectTimeout = setTimeout(() => {
-          if (!hasRequiredOnboarding(currentUser, profile)) {
-            navigate("/edit-profile?onboarding=1", { replace: true });
-            return;
-          }
-          navigate("/", { replace: true });
-        }, AUTO_REDIRECT_MS);
       } catch (error) {
         if (!active) {
           return;
         }
         const message = error instanceof Error ? error.message : "Verification failed.";
+        setSuccessAction(null);
         setState({
           status: "error",
-          title: isRecoveryFlow ? "Reset link failed" : "Verification link failed",
-          message: buildFriendlyAuthError(null, message),
+          title: buildErrorTitle(callbackFlow),
+          message: buildFriendlyAuthError(null, message, callbackFlow),
         });
+      } finally {
+        clearStoredCallbackFlowHint();
       }
     };
 
@@ -308,11 +420,8 @@ export function AuthCallbackScreen() {
     return () => {
       active = false;
       clearTimeout(watchdogTimeout);
-      if (redirectTimeout) {
-        clearTimeout(redirectTimeout);
-      }
     };
-  }, [location.hash, location.search, navigate]);
+  }, []);
 
   return (
     <div className="absolute inset-0 bg-[#fbf8f3] flex items-center justify-center px-6">
@@ -345,6 +454,15 @@ export function AuthCallbackScreen() {
               Continue as guest
             </button>
           </div>
+        ) : null}
+
+        {state.status === "success" && successAction ? (
+          <button
+            onClick={() => navigate(successAction.path, { replace: true })}
+            className="mt-5 w-full rounded-2xl bg-gray-900 px-4 py-3 text-[13px] text-white"
+          >
+            {successAction.label}
+          </button>
         ) : null}
       </div>
     </div>

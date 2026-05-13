@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Search, SlidersHorizontal, User, Plus } from "lucide-react";
-import { CircleNotch, Crosshair, Eye, EyeSlash, MagnifyingGlassMinus } from "@phosphor-icons/react";
+import { CircleNotch, Crosshair, Eye, EyeSlash, GoogleLogo, MagnifyingGlassMinus } from "@phosphor-icons/react";
 import { SLIDERS, type Pub } from "../vibe";
 import {
   calculatePubMatchPercent,
@@ -214,7 +214,7 @@ function computeRadiusFromBounds(
 export function ExploreScreen() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, openAuthModal, authModalOpen } = useAuth();
+  const { user, openAuthModal, authModalOpen, signInWithGoogle } = useAuth();
   const { pubs, loading: placesLoading } = usePlaces();
   const {
     values,
@@ -284,6 +284,8 @@ export function ExploreScreen() {
     return window.sessionStorage.getItem(EXPLORE_GUEST_SESSION_KEY) === "1";
   });
   const [showCreateProfileGate, setShowCreateProfileGate] = useState(false);
+  const [createProfileGateGoogleSubmitting, setCreateProfileGateGoogleSubmitting] = useState(false);
+  const [createProfileGateError, setCreateProfileGateError] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [headerAvatarFailed, setHeaderAvatarFailed] = useState(false);
@@ -460,11 +462,20 @@ export function ExploreScreen() {
       }
       setGuestSessionActive(false);
       setShowCreateProfileGate(false);
+      setCreateProfileGateGoogleSubmitting(false);
+      setCreateProfileGateError("");
       return;
     }
 
     setShowCreateProfileGate(!guestSessionActive && !authModalOpen);
   }, [authModalOpen, guestSessionActive, user]);
+
+  useEffect(() => {
+    if (!showCreateProfileGate) {
+      setCreateProfileGateGoogleSubmitting(false);
+      setCreateProfileGateError("");
+    }
+  }, [showCreateProfileGate]);
 
   useEffect(() => {
     const currentUserId = user?.id ?? null;
@@ -1062,16 +1073,32 @@ export function ExploreScreen() {
   };
 
   const handleStartCreateProfile = () => {
+    setCreateProfileGateError("");
     setShowCreateProfileGate(false);
     openAuthModal("register");
   };
 
   const handleStartLogin = () => {
+    setCreateProfileGateError("");
     setShowCreateProfileGate(false);
     openAuthModal("login");
   };
 
+  const handleStartGoogleAuth = async () => {
+    setCreateProfileGateError("");
+    setCreateProfileGateGoogleSubmitting(true);
+    try {
+      const result = await signInWithGoogle();
+      if (result.error) {
+        setCreateProfileGateError(result.error);
+      }
+    } finally {
+      setCreateProfileGateGoogleSubmitting(false);
+    }
+  };
+
   const handleUseAsGuest = () => {
+    setCreateProfileGateError("");
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem(EXPLORE_GUEST_SESSION_KEY, "1");
     }
@@ -1090,7 +1117,7 @@ export function ExploreScreen() {
     setValues(onboardingValues);
     setEnabled(onboardingEnabled);
     setMarginEnabled(true);
-    setMargin((previous) => (Number.isFinite(previous) ? previous : 20));
+    setMargin(Number.isFinite(margin) ? margin : 20);
     // Exit area-discovery modes so onboarding slider choices immediately drive matching UI.
     setShowUnratedByTypeOnly(false);
     setSearchAreaMode(false);
@@ -1723,6 +1750,19 @@ export function ExploreScreen() {
             <p className="mt-1 text-[13px] text-gray-600 leading-5">
               Sign in to save places, rate venues, and collect points in Grapevine.
             </p>
+            <button
+              type="button"
+              onClick={() => void handleStartGoogleAuth()}
+              disabled={createProfileGateGoogleSubmitting}
+              className="mt-4 w-full h-11 rounded-full border border-gray-200 bg-white text-gray-800 text-[14px] flex items-center justify-center gap-2 disabled:opacity-70"
+            >
+              {createProfileGateGoogleSubmitting ? (
+                <CircleNotch size={16} weight="bold" className="animate-spin" />
+              ) : (
+                <GoogleLogo size={16} />
+              )}
+              Continue with Google
+            </button>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -1739,6 +1779,9 @@ export function ExploreScreen() {
                 Create profile
               </button>
             </div>
+            {createProfileGateError ? (
+              <p className="mt-3 text-[12px] leading-5 text-red-500">{createProfileGateError}</p>
+            ) : null}
             <button
               type="button"
               onClick={handleUseAsGuest}

@@ -152,7 +152,7 @@ export function DetailScreen() {
     const computedMatch = calculatePubMatchPercent(pub, filterInput);
     const perfect = isPerfectPubMatch(pub, filterInput);
 
-    return { hasMatch: true, reason: null as const, match: computedMatch, perfect };
+    return { hasMatch: true, reason: null, match: computedMatch, perfect };
   }, [enabled, hasActivePreferenceSliders, margin, marginEnabled, price, pub, searchRadius, selectedArea, selectedCity, values, venueTypes]);
   const perfectMatch = isPerfectMatch(matchDisplay.match, matchDisplay.perfect);
   const [saved, setSaved] = useState(false);
