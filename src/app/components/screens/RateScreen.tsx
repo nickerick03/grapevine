@@ -13,6 +13,7 @@ import { formatPubAddress } from "../placeAddress";
 import { normalizeVisitContexts, type VisitContext } from "@/types/place";
 import { getUserRatingForPlace, upsertPlaceRating } from "@/lib/services/places";
 import { getGrapevineScoreByUserId, getLeaderboard, type GrapevineScoreBreakdown } from "@/lib/services/profile";
+import { directionalToLegacyScore, directionalToPercent, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
 const VISIT_OPTIONS = [
   {
@@ -64,6 +65,10 @@ const VISIT_OPTIONS = [
 
 const CONFETTI_COLORS = ["#F59E0B", "#EF4444", "#10B981", "#3B82F6", "#8B5CF6", "#F97316"];
 
+function defaultValues(): VibeProfile {
+  return { modern: 0, lively: 0, premium: 0, touristy: 0, spacious: 0 };
+}
+
 function formatPoints(value: number): string {
   const rounded = Number(value.toFixed(1));
   return Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
@@ -77,7 +82,7 @@ export function RateScreen() {
   const [selectedPubId, setSelectedPubId] = useState<string | null>(id ?? null);
   const [search, setSearch] = useState("");
   const [picking, setPicking] = useState(false);
-  const [values, setValues] = useState<VibeProfile>({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
+  const [values, setValues] = useState<VibeProfile>(() => defaultValues());
   const [price, setPrice] = useState<1 | 2 | 3 | 4 | null>(null);
   const [visits, setVisits] = useState<VisitContext[]>([]);
   const [note, setNote] = useState("");
@@ -164,7 +169,7 @@ export function RateScreen() {
 
   useEffect(() => {
     if (!user || !pub) {
-      setValues({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
+      setValues(defaultValues());
       setPrice(null);
       setVisits([]);
       setNote("");
@@ -184,7 +189,7 @@ export function RateScreen() {
         }
 
         if (!existing) {
-          setValues({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
+          setValues(defaultValues());
           setPrice(null);
           setVisits([]);
           setNote("");
@@ -193,11 +198,11 @@ export function RateScreen() {
         }
 
         setValues({
-          modern: existing.classic_modern,
-          lively: existing.quiet_lively,
-          premium: existing.cheap_premium,
-          touristy: existing.local_touristy,
-          spacious: existing.cozy_spacious,
+          modern: legacyScoreToDirectional(existing.classic_modern),
+          lively: legacyScoreToDirectional(existing.quiet_lively),
+          premium: legacyScoreToDirectional(existing.cheap_premium),
+          touristy: legacyScoreToDirectional(existing.local_touristy),
+          spacious: legacyScoreToDirectional(existing.cozy_spacious),
         });
         setPrice(existing.price_range ?? null);
         setVisits(normalizeVisitContexts(existing.visit_contexts ?? existing.visit_context ?? null));
@@ -301,8 +306,16 @@ export function RateScreen() {
             {SLIDERS.map((s) => (
               <div key={s.key} className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div className="h-full" style={{ width: `${values[s.key]}%`, background: s.color }} />
+                <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden relative">
+                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gray-300" />
+                  <div
+                    className="absolute inset-y-0 rounded-full"
+                    style={{
+                      left: `${Math.min(directionalToPercent(values[s.key]), 50)}%`,
+                      width: `${Math.abs(directionalToPercent(values[s.key]) - 50)}%`,
+                      background: s.color,
+                    }}
+                  />
                 </div>
               </div>
             ))}
@@ -358,11 +371,11 @@ export function RateScreen() {
       await upsertPlaceRating({
         place_id: pub.id,
         user_id: user.id,
-        classic_modern: values.modern,
-        quiet_lively: values.lively,
-        cheap_premium: values.premium,
-        local_touristy: values.touristy,
-        cozy_spacious: values.spacious,
+        classic_modern: directionalToLegacyScore(values.modern),
+        quiet_lively: directionalToLegacyScore(values.lively),
+        cheap_premium: directionalToLegacyScore(values.premium),
+        local_touristy: directionalToLegacyScore(values.touristy),
+        cozy_spacious: directionalToLegacyScore(values.spacious),
         price_range: price,
         visit_contexts: visits.length > 0 ? visits : null,
         visit_context: visits[0] ?? null,
@@ -506,6 +519,9 @@ export function RateScreen() {
         {/* Trait sliders */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">How did it feel?</div>
+          <div className="mb-2 text-[12px] text-gray-500">
+            Tap one of the 21 points. Left means stronger left-side trait, right means stronger right-side trait, and 0 is balanced.
+          </div>
           <div className="space-y-2">
             {SLIDERS.map((s) => (
               <VibeSlider
@@ -513,6 +529,7 @@ export function RateScreen() {
                 def={s}
                 value={values[s.key]}
                 onChange={(v) => setValues((prev) => ({ ...prev, [s.key]: v }))}
+                scaleMode="centered"
               />
             ))}
           </div>

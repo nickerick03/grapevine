@@ -1,4 +1,9 @@
 import { SliderDef } from "./vibe";
+import {
+  clampDirectionalNumber,
+  directionalToIntensity,
+  directionalToPercent,
+} from "@/lib/vibe-scale";
 
 interface Props {
   def: SliderDef;
@@ -11,6 +16,7 @@ interface Props {
   toggleWithDot?: boolean;
   comparisonValue?: number;
   hasData?: boolean;
+  scaleMode?: "percent" | "centered";
 }
 
 export function VibeSlider({
@@ -24,10 +30,44 @@ export function VibeSlider({
   toggleWithDot = false,
   comparisonValue,
   hasData = true,
+  scaleMode = "percent",
 }: Props) {
   const interactive = !!onChange;
   const showNeutralTrack = !interactive && !hasData;
   const cardBackgroundClass = compact || showNeutralTrack ? "" : enabled ? def.bg : "bg-gray-100";
+  const centeredScale = scaleMode === "centered";
+
+  const knobPercent = centeredScale ? directionalToPercent(value) : Math.max(0, Math.min(100, value));
+  const fillStartPercent = centeredScale ? Math.min(knobPercent, 50) : 0;
+  const fillWidthPercent = centeredScale ? Math.abs(knobPercent - 50) : knobPercent;
+
+  const centeredValue = centeredScale ? clampDirectionalNumber(value) : 0;
+  const normalizedCenteredValue = centeredScale && Math.abs(centeredValue) < 0.05 ? 0 : centeredValue;
+  const directionalIntensity = centeredScale ? directionalToIntensity(normalizedCenteredValue) : 0;
+  const leftActive = centeredScale && normalizedCenteredValue < 0;
+  const rightActive = centeredScale && normalizedCenteredValue > 0;
+
+  const comparisonMarkerPercent = comparisonValue === undefined
+    ? undefined
+    : centeredScale
+      ? directionalToPercent(comparisonValue)
+      : Math.max(0, Math.min(100, comparisonValue));
+
+  const formatIntensity = (raw: number): string => {
+    const rounded = Math.round(raw * 10) / 10;
+    return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  };
+
+  const leftLabelColor = !enabled
+    ? "#9CA3AF"
+    : leftActive
+      ? def.color
+      : "#6B7280";
+  const rightLabelColor = !enabled
+    ? "#9CA3AF"
+    : rightActive
+      ? def.color
+      : "#6B7280";
 
   return (
     <div
@@ -51,7 +91,15 @@ export function VibeSlider({
 
         {/* Left label */}
         {!showNeutralTrack ? (
-          <span className={`text-[10px] w-[4rem] text-right flex-none leading-tight whitespace-nowrap ${enabled ? "text-gray-500" : "text-gray-400"}`}>
+          <span
+            className={`text-[10px] ${centeredScale ? "w-[5.7rem]" : "w-[4rem]"} text-right flex-none leading-tight whitespace-nowrap transition-colors`}
+            style={{ color: centeredScale ? leftLabelColor : enabled ? "#6B7280" : "#9CA3AF" }}
+          >
+            {leftActive ? (
+              <span className="mr-1 font-medium">
+                {formatIntensity(directionalIntensity)}
+              </span>
+            ) : null}
             {def.left}
           </span>
         ) : null}
@@ -67,26 +115,32 @@ export function VibeSlider({
               <div
                 className="absolute inset-y-0 left-0 rounded-full"
                 style={{
-                  width: `${value}%`,
+                  left: `${fillStartPercent}%`,
+                  width: `${fillWidthPercent}%`,
                   background: enabled ? `linear-gradient(90deg, ${def.color}44, ${def.color}cc)` : "linear-gradient(90deg, #D1D5DB, #9CA3AF)",
                 }}
               />
             ) : null}
 
             {/* Comparison marker */}
-            {!showNeutralTrack && comparisonValue !== undefined && (
+            {!showNeutralTrack && comparisonMarkerPercent !== undefined && (
               <div
                 className="absolute top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-full bg-gray-600/30"
-                style={{ left: `${comparisonValue}%` }}
+                style={{ left: `${comparisonMarkerPercent}%` }}
               />
             )}
+
+            {/* Center marker for directional scale */}
+            {!showNeutralTrack && centeredScale ? (
+              <div className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-gray-400/50" />
+            ) : null}
 
             {/* Pill knob */}
             {!showNeutralTrack ? (
               <div
                 className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-6 w-9 rounded-full bg-white border-2 flex items-center justify-center"
                 style={{
-                  left: `${value}%`,
+                  left: `${knobPercent}%`,
                   borderColor: enabled ? def.color : "#9CA3AF",
                   boxShadow: enabled
                     ? `0 2px 10px ${def.color}44, 0 1px 4px rgba(0,0,0,0.12)`
@@ -105,8 +159,9 @@ export function VibeSlider({
           {interactive && (
             <input
               type="range"
-              min={0}
-              max={100}
+              min={centeredScale ? -10 : 0}
+              max={centeredScale ? 10 : 100}
+              step={centeredScale ? 1 : 1}
               value={value}
               onMouseDown={() => {
                 if (!enabled) {
@@ -128,8 +183,16 @@ export function VibeSlider({
 
         {/* Right label */}
         {!showNeutralTrack ? (
-          <span className={`text-[10px] w-[4rem] text-left flex-none leading-tight whitespace-nowrap ${enabled ? "text-gray-500" : "text-gray-400"}`}>
+          <span
+            className={`text-[10px] ${centeredScale ? "w-[5.7rem]" : "w-[4rem]"} text-left flex-none leading-tight whitespace-nowrap transition-colors`}
+            style={{ color: centeredScale ? rightLabelColor : enabled ? "#6B7280" : "#9CA3AF" }}
+          >
             {def.right}
+            {rightActive ? (
+              <span className="ml-1 font-medium">
+                {formatIntensity(directionalIntensity)}
+              </span>
+            ) : null}
           </span>
         ) : null}
 

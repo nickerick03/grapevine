@@ -568,7 +568,8 @@ export async function unflagNote(userId: string, ratingId: string): Promise<void
 }
 
 function clampScore(value: number): number {
-  return Math.max(0, Math.min(100, Math.round(value)));
+  const clamped = Math.max(0, Math.min(100, Math.round(value)));
+  return Math.round(clamped / 5) * 5;
 }
 
 function sanitizeVisitContexts(contexts: unknown): VisitContext[] {

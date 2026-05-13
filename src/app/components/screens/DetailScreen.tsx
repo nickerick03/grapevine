@@ -36,6 +36,7 @@ import { calculateStrictSimilarityMatch } from "../similarityScore";
 import { calculatePubMatchPercent, isPerfectPubMatch } from "../filtering";
 import { formatPubAddress } from "../placeAddress";
 import { getTraitPillSlug } from "@/lib/chips";
+import { legacyScoreToDirectionalNumber } from "@/lib/vibe-scale";
 import {
   clearNoteVote,
   flagNote,
@@ -1089,8 +1090,9 @@ export function DetailScreen() {
               <VibeSlider
                 key={s.key}
                 def={s}
-                value={pub.vibe[s.key]}
+                value={legacyScoreToDirectionalNumber(pub.vibe[s.key])}
                 hasData={pub.ratings > 0}
+                scaleMode="centered"
               />
             ))}
           </div>

@@ -17,9 +17,11 @@ import {
 } from "@phosphor-icons/react";
 import { SLIDERS, QUICK_CHIPS, type Pub } from "../vibe";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { VibeSlider } from "../VibeSlider";
 import { usePlaces } from "../../context/PlacesContext";
 import { formatDistance, type DistanceUnit, useSettings } from "../../context/SettingsContext";
 import { formatPubAddress } from "../placeAddress";
+import { directionalToLegacyScore, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
 // ─── Mock distances ───────────────────────────────────────────────────────────
 
@@ -632,44 +634,17 @@ function VibeStep({
         Set the profile of this place using the sliders below. Be honest — this
         helps others find it!
       </p>
-      {SLIDERS.map((s) => (
-        <div key={s.key} className={`rounded-2xl ${s.bg} p-4`}>
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-[12px] text-gray-500">{s.left}</span>
-            <span
-              className="text-[13px] px-3 py-0.5 rounded-full text-white"
-              style={{ background: s.color }}
-            >
-              {vibe[s.key]}
-            </span>
-            <span className="text-[12px] text-gray-500">{s.right}</span>
-          </div>
-          <div className="relative h-2 rounded-full bg-gray-200">
-            <div
-              className="absolute left-0 top-0 h-full rounded-full transition-all"
-              style={{
-                width: `${vibe[s.key]}%`,
-                background: `linear-gradient(90deg, ${s.color}66, ${s.color})`,
-              }}
-            />
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={vibe[s.key]}
-              onChange={(e) => onChange(s.key, Number(e.target.value))}
-              className="absolute inset-0 w-full opacity-0 cursor-pointer h-full"
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border-2 border-white shadow-md transition-all"
-              style={{
-                left: `calc(${vibe[s.key]}% - 10px)`,
-                background: s.color,
-              }}
-            />
-          </div>
-        </div>
-      ))}
+      <div className="space-y-2">
+        {SLIDERS.map((s) => (
+          <VibeSlider
+            key={s.key}
+            def={s}
+            value={legacyScoreToDirectional(vibe[s.key])}
+            onChange={(nextValue) => onChange(s.key, directionalToLegacyScore(nextValue))}
+            scaleMode="centered"
+          />
+        ))}
+      </div>
     </div>
   );
 }

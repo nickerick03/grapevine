@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 
 import { VIBE_DIMENSIONS } from "@/lib/vibe-config";
-import { normalizeVisitContexts, type PlaceRatingRecord, type VisitContext, type VibeValues } from "@/types/place";
+import { directionalToLegacyScore, directionalToPercent, legacyScoreToDirectional } from "@/lib/vibe-scale";
+import { normalizeVisitContexts, type VisitContext, type VibeValues } from "@/types/place";
 
 const VISIT_CONTEXTS: VisitContext[] = [
   "Weekday afternoon",
@@ -25,6 +26,28 @@ interface RatingFormProps {
   submitting: boolean;
 }
 
+type DirectionalVibeValues = Record<keyof VibeValues, number>;
+
+function toDirectionalValues(values: VibeValues): DirectionalVibeValues {
+  return {
+    classic_modern: legacyScoreToDirectional(values.classic_modern),
+    quiet_lively: legacyScoreToDirectional(values.quiet_lively),
+    cheap_premium: legacyScoreToDirectional(values.cheap_premium),
+    local_touristy: legacyScoreToDirectional(values.local_touristy),
+    cozy_spacious: legacyScoreToDirectional(values.cozy_spacious),
+  };
+}
+
+function toStoredValues(values: DirectionalVibeValues): VibeValues {
+  return {
+    classic_modern: directionalToLegacyScore(values.classic_modern),
+    quiet_lively: directionalToLegacyScore(values.quiet_lively),
+    cheap_premium: directionalToLegacyScore(values.cheap_premium),
+    local_touristy: directionalToLegacyScore(values.local_touristy),
+    cozy_spacious: directionalToLegacyScore(values.cozy_spacious),
+  };
+}
+
 export function RatingForm({
   initialValues,
   initialVisitContexts = null,
@@ -33,7 +56,7 @@ export function RatingForm({
   onSubmit,
   submitting,
 }: RatingFormProps) {
-  const [values, setValues] = useState<VibeValues>(initialValues);
+  const [values, setValues] = useState<DirectionalVibeValues>(() => toDirectionalValues(initialValues));
   const [visitContexts, setVisitContexts] = useState<VisitContext[]>(
     normalizeVisitContexts(initialVisitContexts ?? initialVisitContext ?? null),
   );
@@ -56,7 +79,7 @@ export function RatingForm({
     setSuccess(null);
 
     const result = await onSubmit({
-      values,
+      values: toStoredValues(values),
       visit_contexts: visitContexts.length > 0 ? visitContexts : null,
       visit_context: visitContexts[0] ?? null,
       note: note.trim() ? note.trim().slice(0, 160) : null,
@@ -72,33 +95,88 @@ export function RatingForm({
 
   return (
     <section className="space-y-4 rounded-3xl border border-gray-100 bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
-      {VIBE_DIMENSIONS.map((dimension) => (
-        <label key={dimension.key} className="block rounded-2xl p-3" style={{ background: `${dimension.color}0D` }}>
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[13px] text-gray-800">{dimension.label}</span>
-            <span className="text-[12px] text-gray-500">{Math.round(values[dimension.key])}</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={values[dimension.key]}
-            onChange={(event) =>
-              setValues((previous) => ({
-                ...previous,
-                [dimension.key]: Number.parseInt(event.target.value, 10),
-              }))
-            }
-            className="w-full"
-            style={{ accentColor: dimension.color }}
-          />
-          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-500">
-            <span>{dimension.leftLabel}</span>
-            <span>{dimension.rightLabel}</span>
-          </div>
-        </label>
-      ))}
+      <p className="text-[12px] text-gray-500">
+        Each scale is centered at 0. Left side means stronger left trait, right side means stronger right trait.
+      </p>
+      {VIBE_DIMENSIONS.map((dimension) => {
+        const directionalValue = values[dimension.key];
+        const leftActive = directionalValue < 0;
+        const rightActive = directionalValue > 0;
+        const intensity = Math.abs(directionalValue);
+        const percent = directionalToPercent(directionalValue);
+
+        return (
+          <label key={dimension.key} className="block rounded-2xl p-3" style={{ background: `${dimension.color}0D` }}>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[13px] text-gray-800">{dimension.label}</span>
+              <span className="text-[12px] text-gray-500">
+                {directionalValue === 0
+                  ? "Neutral"
+                  : `${directionalValue < 0 ? dimension.leftLabel : dimension.rightLabel} ${intensity}`}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span
+                className="w-[5.8rem] text-right text-[10px] leading-tight whitespace-nowrap transition-colors"
+                style={{ color: leftActive ? dimension.color : "#6B7280" }}
+              >
+                {leftActive ? <span className="mr-1 font-medium">{intensity}</span> : null}
+                {dimension.leftLabel}
+              </span>
+
+              <div className="relative flex-1 py-1">
+                <div className="relative h-4 rounded-full mx-2 bg-white/80">
+                  <div
+                    className="absolute inset-y-0 rounded-full"
+                    style={{
+                      left: `${Math.min(percent, 50)}%`,
+                      width: `${Math.abs(percent - 50)}%`,
+                      background: `linear-gradient(90deg, ${dimension.color}44, ${dimension.color}cc)`,
+                    }}
+                  />
+                  <div className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-gray-400/50" />
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-6 w-9 rounded-full bg-white border-2 flex items-center justify-center"
+                    style={{
+                      left: `${percent}%`,
+                      borderColor: dimension.color,
+                      boxShadow: `0 2px 10px ${dimension.color}44, 0 1px 4px rgba(0,0,0,0.12)`,
+                    }}
+                  >
+                    <div className="flex gap-[3px]">
+                      <div className="w-[2px] h-2.5 rounded-full" style={{ background: `${dimension.color}bb` }} />
+                      <div className="w-[2px] h-2.5 rounded-full" style={{ background: `${dimension.color}bb` }} />
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={-10}
+                  max={10}
+                  step={1}
+                  value={directionalValue}
+                  onChange={(event) =>
+                    setValues((previous) => ({
+                      ...previous,
+                      [dimension.key]: Number.parseInt(event.target.value, 10),
+                    }))
+                  }
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                />
+              </div>
+
+              <span
+                className="w-[5.8rem] text-left text-[10px] leading-tight whitespace-nowrap transition-colors"
+                style={{ color: rightActive ? dimension.color : "#6B7280" }}
+              >
+                {dimension.rightLabel}
+                {rightActive ? <span className="ml-1 font-medium">{intensity}</span> : null}
+              </span>
+            </div>
+          </label>
+        );
+      })}
 
       <div>
         <p className="mb-2 text-[12px] uppercase tracking-wide text-gray-500">Visit context (optional)</p>

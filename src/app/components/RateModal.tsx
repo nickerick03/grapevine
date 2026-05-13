@@ -17,8 +17,11 @@ import {
   upsertExternalPlaceFirstRating,
   upsertPlaceRating,
 } from "@/lib/services/places";
+import { directionalToLegacyScore, directionalToPercent, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
-const DEFAULT_VALUES: VibeProfile = { modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 };
+function defaultValues(): VibeProfile {
+  return { modern: 0, lively: 0, premium: 0, touristy: 0, spacious: 0 };
+}
 
 const VISIT_OPTIONS = [
   { value: "Weekday afternoon", time: "Afternoon", day: "Weekday", Icon: Sun,   color: "#F59E0B", bg: "#FEF3C7", border: "#FDE68A" },
@@ -82,7 +85,7 @@ export function RateModal() {
   const [pub, setPub] = useState<Pub | null>(initialPub);
   const [search, setSearch] = useState("");
   const [picking, setPicking] = useState(false);
-  const [values, setValues] = useState<VibeProfile>(DEFAULT_VALUES);
+  const [values, setValues] = useState<VibeProfile>(() => defaultValues());
   const [price, setPrice] = useState<1 | 2 | 3 | 4 | null>(null);
   const [visits, setVisits] = useState<VisitContext[]>([]);
   const [note, setNote] = useState("");
@@ -105,7 +108,7 @@ export function RateModal() {
     setPub(initialPub);
     setSearch("");
     setPicking(false);
-    setValues(DEFAULT_VALUES);
+    setValues(defaultValues());
     setPrice(null);
     setVisits([]);
     setNote("");
@@ -131,7 +134,7 @@ export function RateModal() {
         if (currentPub.isExternalCandidate && currentPub.sourceProvider === "osm" && currentPub.sourcePlaceId) {
           const linkedPlace = await getPlaceByExternalSource("osm", currentPub.sourcePlaceId);
           if (!linkedPlace) {
-            setValues(DEFAULT_VALUES);
+            setValues(defaultValues());
             setPrice(null);
             setVisits([]);
             setNote("");
@@ -147,7 +150,7 @@ export function RateModal() {
         }
 
         if (!existing) {
-          setValues(DEFAULT_VALUES);
+          setValues(defaultValues());
           setPrice(null);
           setVisits([]);
           setNote("");
@@ -156,11 +159,11 @@ export function RateModal() {
         }
 
         setValues({
-          modern: existing.classic_modern,
-          lively: existing.quiet_lively,
-          premium: existing.cheap_premium,
-          touristy: existing.local_touristy,
-          spacious: existing.cozy_spacious,
+          modern: legacyScoreToDirectional(existing.classic_modern),
+          lively: legacyScoreToDirectional(existing.quiet_lively),
+          premium: legacyScoreToDirectional(existing.cheap_premium),
+          touristy: legacyScoreToDirectional(existing.local_touristy),
+          spacious: legacyScoreToDirectional(existing.cozy_spacious),
         });
         setPrice(existing.price_range ?? null);
         setVisits(normalizeVisitContexts(existing.visit_contexts ?? existing.visit_context ?? null));
@@ -200,11 +203,11 @@ export function RateModal() {
     try {
       const ratingPayload = {
         user_id: user.id,
-        classic_modern: values.modern,
-        quiet_lively: values.lively,
-        cheap_premium: values.premium,
-        local_touristy: values.touristy,
-        cozy_spacious: values.spacious,
+        classic_modern: directionalToLegacyScore(values.modern),
+        quiet_lively: directionalToLegacyScore(values.lively),
+        cheap_premium: directionalToLegacyScore(values.premium),
+        local_touristy: directionalToLegacyScore(values.touristy),
+        cozy_spacious: directionalToLegacyScore(values.spacious),
         price_range: price,
         visit_contexts: visits.length > 0 ? visits : null,
         visit_context: visits[0] ?? null,
@@ -347,8 +350,16 @@ export function RateModal() {
                     {SLIDERS.map((s) => (
                       <div key={s.key} className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                        <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                          <div className="h-full" style={{ width: `${values[s.key]}%`, background: s.color }} />
+                        <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden relative">
+                          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gray-300" />
+                          <div
+                            className="absolute inset-y-0 rounded-full"
+                            style={{
+                              left: `${Math.min(directionalToPercent(values[s.key]), 50)}%`,
+                              width: `${Math.abs(directionalToPercent(values[s.key]) - 50)}%`,
+                              background: s.color,
+                            }}
+                          />
                         </div>
                       </div>
                     ))}
@@ -425,6 +436,9 @@ export function RateModal() {
                   {/* Trait sliders */}
                   <div>
                     <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">How did it feel?</div>
+                    <div className="mb-2 text-[12px] text-gray-500">
+                      Tap one of the 21 points. Left means the left trait, right means the right trait, and 0 is balanced.
+                    </div>
                     <div className="space-y-2">
                       {SLIDERS.map((s) => (
                         <VibeSlider
@@ -432,6 +446,7 @@ export function RateModal() {
                           def={s}
                           value={values[s.key]}
                           onChange={(v) => setValues((prev) => ({ ...prev, [s.key]: v }))}
+                          scaleMode="centered"
                         />
                       ))}
                     </div>

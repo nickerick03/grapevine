@@ -26,6 +26,7 @@ import {
 import { SLIDERS, VibeProfile, SliderKey } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
 import { CustomPreset, PRICE_OPTIONS } from "../context/FilterContext";
+import { directionalToLegacyScore, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
 // ── 20 icon options ────────────────────────────────────────────────────────
 export const ICON_OPTIONS = [
@@ -190,11 +191,12 @@ export function CustomPresetModal({
                     <VibeSlider
                       key={s.key}
                       def={s}
-                      value={values[s.key]}
-                      onChange={(v) => setValues({ ...values, [s.key]: v })}
+                      value={legacyScoreToDirectional(values[s.key])}
+                      onChange={(v) => setValues({ ...values, [s.key]: directionalToLegacyScore(v) })}
                       enabled={enabled[s.key]}
                       onToggle={(b) => setEnabled({ ...enabled, [s.key]: b })}
                       toggleWithDot
+                      scaleMode="centered"
                     />
                   ))}
                 </div>

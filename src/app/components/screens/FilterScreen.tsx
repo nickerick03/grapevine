@@ -26,6 +26,7 @@ import type { CustomPreset, VenueType } from "../../context/FilterContext";
 import { usePlaces } from "../../context/PlacesContext";
 import { formatDistance, type DistanceUnit, useSettings } from "../../context/SettingsContext";
 import { searchOsmPlaces, toExternalPub } from "@/lib/services/osm";
+import { directionalToLegacyScore, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
 const PRESET_ITEMS = [
   { key: "talking", label: "Good for talking", icon: <ChatCircle weight="duotone" size={22} /> },
@@ -567,11 +568,12 @@ export function FilterScreen() {
               <VibeSlider
                 key={s.key}
                 def={s}
-                value={values[s.key]}
-                onChange={(v) => setValues({ ...values, [s.key]: v })}
+                value={legacyScoreToDirectional(values[s.key])}
+                onChange={(v) => setValues({ ...values, [s.key]: directionalToLegacyScore(v) })}
                 enabled={enabled[s.key]}
                 onToggle={(b) => setEnabled({ ...enabled, [s.key]: b })}
                 toggleWithDot
+                scaleMode="centered"
               />
             ))}
           </div>

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type TouchEventHandler } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { SLIDERS, type SliderKey, type VibeProfile } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
+import { directionalToLegacyScore, legacyScoreToDirectional } from "@/lib/vibe-scale";
 
 type OnboardingModalProps = {
   initialValues: VibeProfile;
@@ -161,14 +162,15 @@ export function OnboardingModal({ initialValues, onComplete }: OnboardingModalPr
                     <VibeSlider
                       key={slider.key}
                       def={slider}
-                      value={values[slider.key]}
+                      value={legacyScoreToDirectional(values[slider.key])}
                       onChange={(nextValue) =>
                         setValues((previous) => ({
                           ...previous,
-                          [slider.key]: nextValue,
+                          [slider.key]: directionalToLegacyScore(nextValue),
                         }))
                       }
                       enabled
+                      scaleMode="centered"
                     />
                   ))}
                 </div>
