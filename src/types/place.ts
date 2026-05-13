@@ -7,6 +7,7 @@ export const VISIT_CONTEXTS = [
 ] as const;
 
 export type VisitContext = (typeof VISIT_CONTEXTS)[number];
+export type VisitContexts = VisitContext[];
 export type VenueType = "bar" | "cafe" | "restaurant";
 export type PriceRange = 1 | 2 | 3 | 4;
 
@@ -60,6 +61,7 @@ export interface PlaceRatingRecord {
   cozy_spacious: number;
   price_range: PriceRange | null;
   visit_context: VisitContext | null;
+  visit_contexts?: VisitContexts | null;
   note: string | null;
   created_at: string;
   updated_at: string;
@@ -98,7 +100,20 @@ export interface PlaceRatingInput {
   cozy_spacious: number;
   price_range?: PriceRange | null;
   visit_context?: VisitContext | null;
+  visit_contexts?: VisitContexts | null;
   note?: string | null;
+}
+
+export function normalizeVisitContexts(value: unknown): VisitContexts {
+  if (Array.isArray(value)) {
+    return value.filter((entry): entry is VisitContext => VISIT_CONTEXTS.includes(entry as VisitContext));
+  }
+
+  if (typeof value === "string" && VISIT_CONTEXTS.includes(value as VisitContext)) {
+    return [value as VisitContext];
+  }
+
+  return [];
 }
 
 export type NoteVote = -1 | 0 | 1;
@@ -121,6 +136,7 @@ export interface PlaceNoteCard {
   downvotes: number;
   my_vote: NoteVote;
   flagged_by_me: boolean;
+  my_flag_count: number;
 }
 
 export interface ExternalPlaceInput {

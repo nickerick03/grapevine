@@ -10,7 +10,7 @@ import { useAuth } from "../context/AuthContext";
 import { usePlaces } from "../context/PlacesContext";
 import { PRICE_OPTIONS } from "../context/FilterContext";
 import { formatPubAddress } from "./placeAddress";
-import type { VisitContext } from "@/types/place";
+import { normalizeVisitContexts, type VisitContext } from "@/types/place";
 import {
   getPlaceByExternalSource,
   getUserRatingForPlace,
@@ -84,7 +84,7 @@ export function RateModal() {
   const [picking, setPicking] = useState(false);
   const [values, setValues] = useState<VibeProfile>(DEFAULT_VALUES);
   const [price, setPrice] = useState<1 | 2 | 3 | 4 | null>(null);
-  const [visit, setVisit] = useState<VisitContext | null>(null);
+  const [visits, setVisits] = useState<VisitContext[]>([]);
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -107,7 +107,7 @@ export function RateModal() {
     setPicking(false);
     setValues(DEFAULT_VALUES);
     setPrice(null);
-    setVisit(null);
+    setVisits([]);
     setNote("");
     setSubmitted(false);
     setSubmitError(null);
@@ -133,7 +133,7 @@ export function RateModal() {
           if (!linkedPlace) {
             setValues(DEFAULT_VALUES);
             setPrice(null);
-            setVisit(null);
+            setVisits([]);
             setNote("");
             setHasExistingRating(false);
             return;
@@ -149,7 +149,7 @@ export function RateModal() {
         if (!existing) {
           setValues(DEFAULT_VALUES);
           setPrice(null);
-          setVisit(null);
+          setVisits([]);
           setNote("");
           setHasExistingRating(false);
           return;
@@ -163,7 +163,7 @@ export function RateModal() {
           spacious: existing.cozy_spacious,
         });
         setPrice(existing.price_range ?? null);
-        setVisit(existing.visit_context ?? null);
+        setVisits(normalizeVisitContexts(existing.visit_contexts ?? existing.visit_context ?? null));
         setNote(existing.note ?? "");
         setHasExistingRating(true);
       } catch {
@@ -180,6 +180,14 @@ export function RateModal() {
   }, [pub, rateOpen, user]);
 
   const matches = pubs.filter((entry) => entry.name.toLowerCase().includes(search.toLowerCase()));
+
+  const toggleVisit = (context: VisitContext) => {
+    setVisits((current) => (
+      current.includes(context)
+        ? current.filter((item) => item !== context)
+        : [...current, context]
+    ));
+  };
 
   const submitRating = async () => {
     if (!user || !pub) {
@@ -198,7 +206,8 @@ export function RateModal() {
         local_touristy: values.touristy,
         cozy_spacious: values.spacious,
         price_range: price,
-        visit_context: visit,
+        visit_contexts: visits.length > 0 ? visits : null,
+        visit_context: visits[0] ?? null,
         note: note.trim() ? note.trim().slice(0, 160) : null,
       };
 
@@ -453,13 +462,14 @@ export function RateModal() {
                   {/* When did you visit */}
                   <div>
                     <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">When did you visit?</div>
+                    <div className="mb-2 text-[12px] text-gray-500">Select all that apply.</div>
                     <div className="grid grid-cols-2 gap-2">
                       {VISIT_OPTIONS.slice(0, 4).map((opt) => {
-                        const sel = visit === opt.value;
+                        const sel = visits.includes(opt.value as VisitContext);
                         return (
                           <button
                             key={opt.value}
-                            onClick={() => setVisit(opt.value as VisitContext)}
+                            onClick={() => toggleVisit(opt.value as VisitContext)}
                             className="rounded-2xl p-3 flex flex-col items-start gap-2 border transition-all text-left"
                             style={sel
                               ? { background: opt.bg, borderColor: opt.border, borderWidth: 1.5 }
@@ -475,11 +485,11 @@ export function RateModal() {
                       })}
                       {(() => {
                         const opt = VISIT_OPTIONS[4];
-                        const sel = visit === opt.value;
+                        const sel = visits.includes(opt.value as VisitContext);
                         return (
                           <button
                             key={opt.value}
-                            onClick={() => setVisit(opt.value as VisitContext)}
+                            onClick={() => toggleVisit(opt.value as VisitContext)}
                             className="col-span-2 rounded-2xl px-4 py-3 flex items-center gap-3 border transition-all"
                             style={sel
                               ? { background: opt.bg, borderColor: opt.border, borderWidth: 1.5 }
@@ -491,6 +501,18 @@ export function RateModal() {
                         );
                       })()}
                     </div>
+                    {visits.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {visits.map((context) => (
+                          <span
+                            key={context}
+                            className="px-2 py-1 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200"
+                          >
+                            {context}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* Quick note */}

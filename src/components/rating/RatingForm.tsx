@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { VIBE_DIMENSIONS } from "@/lib/vibe-config";
-import type { PlaceRatingRecord, VisitContext, VibeValues } from "@/types/place";
+import { normalizeVisitContexts, type PlaceRatingRecord, type VisitContext, type VibeValues } from "@/types/place";
 
 const VISIT_CONTEXTS: VisitContext[] = [
   "Weekday afternoon",
@@ -13,10 +13,12 @@ const VISIT_CONTEXTS: VisitContext[] = [
 
 interface RatingFormProps {
   initialValues: VibeValues;
+  initialVisitContexts?: VisitContext[] | null;
   initialVisitContext?: VisitContext | null;
   initialNote?: string | null;
   onSubmit: (payload: {
     values: VibeValues;
+    visit_contexts: VisitContext[] | null;
     visit_context: VisitContext | null;
     note: string | null;
   }) => Promise<{ error: string | null }>;
@@ -25,18 +27,29 @@ interface RatingFormProps {
 
 export function RatingForm({
   initialValues,
+  initialVisitContexts = null,
   initialVisitContext = null,
   initialNote = null,
   onSubmit,
   submitting,
 }: RatingFormProps) {
   const [values, setValues] = useState<VibeValues>(initialValues);
-  const [visitContext, setVisitContext] = useState<VisitContext | null>(initialVisitContext);
+  const [visitContexts, setVisitContexts] = useState<VisitContext[]>(
+    normalizeVisitContexts(initialVisitContexts ?? initialVisitContext ?? null),
+  );
   const [note, setNote] = useState(initialNote ?? "");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const noteLength = useMemo(() => note.length, [note]);
+
+  const toggleVisitContext = (context: VisitContext) => {
+    setVisitContexts((current) => (
+      current.includes(context)
+        ? current.filter((entry) => entry !== context)
+        : [...current, context]
+    ));
+  };
 
   async function submit() {
     setError(null);
@@ -44,7 +57,8 @@ export function RatingForm({
 
     const result = await onSubmit({
       values,
-      visit_context: visitContext,
+      visit_contexts: visitContexts.length > 0 ? visitContexts : null,
+      visit_context: visitContexts[0] ?? null,
       note: note.trim() ? note.trim().slice(0, 160) : null,
     });
 
@@ -88,14 +102,15 @@ export function RatingForm({
 
       <div>
         <p className="mb-2 text-[12px] uppercase tracking-wide text-gray-500">Visit context (optional)</p>
+        <p className="mb-2 text-[11px] text-gray-500">Select all that apply.</p>
         <div className="flex flex-wrap gap-2">
           {VISIT_CONTEXTS.map((context) => (
             <button
               key={context}
               type="button"
-              onClick={() => setVisitContext((current) => (current === context ? null : context))}
+              onClick={() => toggleVisitContext(context)}
               className={`rounded-full border px-3 py-1.5 text-[12px] transition ${
-                visitContext === context
+                visitContexts.includes(context)
                   ? "border-gray-900 bg-gray-900 text-white"
                   : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
               }`}

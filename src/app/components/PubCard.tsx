@@ -41,7 +41,7 @@ export function PubCard({
             </div>
             {showMatchPill && hasRatings ? (
               <div
-                className={`flex-none px-2 py-0.5 rounded-full border whitespace-nowrap ${
+                className={`shrink-0 self-start px-2 py-0.5 rounded-full border whitespace-nowrap ${
                   perfectMatch ? "perfect-match-pill text-[10px] tracking-wide font-semibold" : "text-[11px]"
                 }`}
                 style={getMatchPillStyle(pub.match, pub.perfectMatch)}

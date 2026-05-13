@@ -16,6 +16,7 @@ export interface CupLeaderboardEntry {
   rank: number;
   userId: string;
   username: string;
+  avatarUrl: string | null;
   emoji: string;
   gradientFrom: string;
   gradientTo: string;

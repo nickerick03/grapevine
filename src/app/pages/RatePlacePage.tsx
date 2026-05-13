@@ -146,10 +146,11 @@ export function RatePlacePage() {
 
       <RatingForm
         initialValues={initialValues}
+        initialVisitContexts={existingRating?.visit_contexts ?? null}
         initialVisitContext={existingRating?.visit_context ?? null}
         initialNote={existingRating?.note ?? null}
         submitting={submitting}
-        onSubmit={async ({ values, visit_context, note }) => {
+        onSubmit={async ({ values, visit_contexts, visit_context, note }) => {
           setSubmitting(true);
 
           try {
@@ -161,6 +162,7 @@ export function RatePlacePage() {
               cheap_premium: values.cheap_premium,
               local_touristy: values.local_touristy,
               cozy_spacious: values.cozy_spacious,
+              visit_contexts,
               visit_context,
               note,
             });

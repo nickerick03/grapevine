@@ -5,7 +5,7 @@ import { useAuth } from "@/app/context/AuthContext";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { getPlaces, getRatingsByUser, getSavedPlaces } from "@/lib/services/places";
-import type { PlaceRatingRecord, PlaceRecord } from "@/types/place";
+import { normalizeVisitContexts, type PlaceRatingRecord, type PlaceRecord } from "@/types/place";
 
 export function AccountPage() {
   const navigate = useNavigate();
@@ -170,7 +170,12 @@ export function AccountPage() {
                   return (
                     <li key={rating.id} className="rounded-2xl bg-gray-50 p-3">
                       <p className="text-[13px] text-gray-900">{place?.name ?? "Unknown place"}</p>
-                      <p className="text-[12px] text-gray-500">{rating.visit_context ?? "Visit context not set"}</p>
+                      <p className="text-[12px] text-gray-500">
+                        {(() => {
+                          const contexts = normalizeVisitContexts(rating.visit_contexts ?? rating.visit_context ?? null);
+                          return contexts.length > 0 ? contexts.join(" • ") : "Visit context not set";
+                        })()}
+                      </p>
                       {rating.note ? <p className="mt-1 text-[12px] text-gray-700">{rating.note}</p> : null}
                     </li>
                   );

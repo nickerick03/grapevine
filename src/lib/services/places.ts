@@ -10,6 +10,7 @@ import type {
   PlaceRecord,
   PlaceVibeSummary,
   PlaceWithSummary,
+  VisitContext,
 } from "@/types/place";
 
 interface GetPlacesOptions {
@@ -316,6 +317,7 @@ type RawPlaceNoteFeedRow = {
   downvotes: number | null;
   my_vote: number | null;
   flagged_by_me: boolean | null;
+  my_flag_count?: number | null;
 };
 
 function normalizeVote(vote: number | null | undefined): NoteVote {
@@ -347,6 +349,7 @@ function mapRawNoteRow(row: RawPlaceNoteFeedRow): PlaceNoteCard {
     downvotes: row.downvotes ?? 0,
     my_vote: normalizeVote(row.my_vote),
     flagged_by_me: Boolean(row.flagged_by_me),
+    my_flag_count: Math.max(0, Number(row.my_flag_count ?? 0) || 0),
   };
 }
 
@@ -386,6 +389,7 @@ export async function getPlaceNoteFeed(placeId: string, limit = 6): Promise<Plac
       downvotes: 0,
       my_vote: 0,
       flagged_by_me: false,
+      my_flag_count: 0,
     }));
 }
 
@@ -533,37 +537,22 @@ export async function flagNote(
   ratingId: string,
   reason: NoteFlagReason,
   details?: string,
-): Promise<"created"> {
+): Promise<{ status: "created" | "updated" | "limit_reached"; report_count: number }> {
+  void userId;
   const normalizedDetails = details?.trim() ? details.trim().slice(0, 280) : null;
-  const existing = await supabase
-    .from("place_rating_note_flags")
-    .select("id")
-    .eq("rating_id", ratingId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("submit_note_flag_report", {
+    p_rating_id: ratingId,
+    p_reason: reason,
+    p_details: reason === "other" ? normalizedDetails : null,
+  });
 
-  if (existing.error) {
-    throw existing.error;
-  }
+  if (error) throw error;
 
-  if (existing.data?.id) {
-    throw new Error("You already reported this note.");
-  }
-
-  const { error } = await supabase
-    .from("place_rating_note_flags")
-    .insert({
-      rating_id: ratingId,
-      user_id: userId,
-      reason,
-      details: reason === "other" ? normalizedDetails : null,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return "created";
+  const row = Array.isArray(data) ? data[0] : data;
+  const count = Number(row?.report_count ?? 0) || 0;
+  const statusRaw = row?.status;
+  const status = statusRaw === "limit_reached" || statusRaw === "updated" ? statusRaw : "created";
+  return { status, report_count: count };
 }
 
 export async function unflagNote(userId: string, ratingId: string): Promise<void> {
@@ -582,7 +571,55 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function sanitizeVisitContexts(contexts: unknown): VisitContext[] {
+  if (!Array.isArray(contexts)) {
+    return [];
+  }
+
+  const allowed = new Set<VisitContext>([
+    "Weekday afternoon",
+    "Weekday evening",
+    "Weekend afternoon",
+    "Weekend evening",
+    "Late night",
+  ]);
+
+  return contexts.filter((item): item is VisitContext => typeof item === "string" && allowed.has(item as VisitContext));
+}
+
+async function trySyncVisitContexts(
+  placeId: string,
+  userId: string,
+  visitContexts: VisitContext[] | null,
+): Promise<void> {
+  const contexts = sanitizeVisitContexts(visitContexts ?? []);
+
+  try {
+    const { error } = await supabase
+      .from("place_ratings")
+      .update({
+        visit_contexts: contexts.length > 0 ? contexts : null,
+      })
+      .eq("place_id", placeId)
+      .eq("user_id", userId);
+
+    if (!error) {
+      return;
+    }
+
+    const missingColumn =
+      error.code === "42703" || error.message.toLowerCase().includes("visit_contexts");
+    if (!missingColumn) {
+      throw error;
+    }
+  } catch {
+    // Keep compatibility for environments where the migration is not applied yet.
+  }
+}
+
 export async function upsertPlaceRating(input: PlaceRatingInput): Promise<PlaceRatingRecord> {
+  const visitContexts = sanitizeVisitContexts(input.visit_contexts ?? []);
+  const legacyVisitContext = visitContexts[0] ?? input.visit_context ?? null;
   const payload = {
     place_id: input.place_id,
     user_id: input.user_id,
@@ -592,15 +629,33 @@ export async function upsertPlaceRating(input: PlaceRatingInput): Promise<PlaceR
     local_touristy: clampScore(input.local_touristy),
     cozy_spacious: clampScore(input.cozy_spacious),
     price_range: input.price_range ?? null,
-    visit_context: input.visit_context ?? null,
+    visit_context: legacyVisitContext,
+    visit_contexts: visitContexts.length > 0 ? visitContexts : null,
     note: input.note?.slice(0, 160) ?? null,
   };
 
-  const { data, error } = await supabase
-    .from("place_ratings")
-    .upsert(payload, { onConflict: "place_id,user_id" })
-    .select("*")
-    .single();
+  let { data, error } = await supabase
+      .from("place_ratings")
+      .upsert(payload, { onConflict: "place_id,user_id" })
+      .select("*")
+      .single();
+
+  if (error) {
+    const missingColumn = error.code === "42703" || error.message.toLowerCase().includes("visit_contexts");
+    if (missingColumn) {
+      ({ data, error } = await supabase
+        .from("place_ratings")
+        .upsert(
+          {
+            ...payload,
+            visit_contexts: undefined,
+          },
+          { onConflict: "place_id,user_id" },
+        )
+        .select("*")
+        .single());
+    }
+  }
 
   if (error) {
     throw error;
@@ -621,8 +676,12 @@ export async function upsertExternalPlaceFirstRating(
       ...rating,
       place_id: existing.id,
     });
+    await trySyncVisitContexts(existing.id, rating.user_id, rating.visit_contexts ?? null);
     return { placeId: existing.id, rating: savedRating };
   }
+
+  const visitContexts = sanitizeVisitContexts(rating.visit_contexts ?? []);
+  const legacyVisitContext = visitContexts[0] ?? rating.visit_context ?? null;
 
   const rpcPayload = {
     p_source_provider: externalPlace.source_provider,
@@ -647,7 +706,7 @@ export async function upsertExternalPlaceFirstRating(
     p_cheap_premium: clampScore(rating.cheap_premium),
     p_local_touristy: clampScore(rating.local_touristy),
     p_cozy_spacious: clampScore(rating.cozy_spacious),
-    p_visit_context: rating.visit_context ?? null,
+    p_visit_context: legacyVisitContext,
     p_note: rating.note?.slice(0, 160) ?? null,
   };
 
@@ -658,6 +717,7 @@ export async function upsertExternalPlaceFirstRating(
     if (!savedRating) {
       throw new Error("Rating saved but could not read it back.");
     }
+    await trySyncVisitContexts(createdPlaceId, rating.user_id, visitContexts);
     return { placeId: createdPlaceId, rating: savedRating };
   }
 
@@ -685,7 +745,7 @@ export async function upsertExternalPlaceFirstRating(
       p_cheap_premium: clampScore(rating.cheap_premium),
       p_local_touristy: clampScore(rating.local_touristy),
       p_cozy_spacious: clampScore(rating.cozy_spacious),
-      p_visit_context: rating.visit_context ?? null,
+      p_visit_context: legacyVisitContext,
       p_note: rating.note?.slice(0, 160) ?? null,
     };
 
@@ -699,6 +759,7 @@ export async function upsertExternalPlaceFirstRating(
       if (!savedRating) {
         throw new Error("Rating saved but could not read it back.");
       }
+      await trySyncVisitContexts(legacyPlaceId, rating.user_id, visitContexts);
       return { placeId: legacyPlaceId, rating: savedRating };
     }
   }
@@ -746,6 +807,7 @@ export async function upsertExternalPlaceFirstRating(
     ...rating,
     place_id: insertedPlace.id,
   });
+  await trySyncVisitContexts(insertedPlace.id, rating.user_id, visitContexts);
 
   return { placeId: insertedPlace.id, rating: savedRating };
 }

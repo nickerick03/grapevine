@@ -19,6 +19,7 @@ type LeaderRowData = {
   rank: number;
   userId: string;
   username: string;
+  avatarUrl: string | null;
   emoji: string;
   gradientFrom: string;
   gradientTo: string;
@@ -95,6 +96,7 @@ function toAllTimeRows(entries: LeaderboardEntry[]): LeaderRowData[] {
     rank: entry.rank,
     userId: entry.userId,
     username: entry.username,
+    avatarUrl: entry.avatarUrl ?? null,
     emoji: entry.emoji,
     gradientFrom: entry.gradientFrom,
     gradientTo: entry.gradientTo,
@@ -111,6 +113,7 @@ function toCupRows(entries: CupLeaderboardEntry[]): LeaderRowData[] {
     rank: entry.rank,
     userId: entry.userId,
     username: entry.username,
+    avatarUrl: entry.avatarUrl ?? null,
     emoji: entry.emoji,
     gradientFrom: entry.gradientFrom,
     gradientTo: entry.gradientTo,
@@ -397,6 +400,8 @@ function PodiumCard({
     ? `linear-gradient(180deg, ${entry!.gradientFrom}26 0%, ${entry!.gradientTo}14 100%)`
     : theme.blockBg;
   const blockBorder = hasEntry ? `${entry!.gradientFrom}66` : theme.blockBorder;
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const showAvatarImage = hasEntry && !!entry!.avatarUrl && !avatarFailed;
 
   return (
     <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
@@ -409,7 +414,16 @@ function PodiumCard({
           opacity: hasEntry ? 1 : 0.72,
         }}
       >
-        <span className="text-[32px]">{hasEntry ? entry!.emoji : ""}</span>
+        {showAvatarImage ? (
+          <img
+            src={entry!.avatarUrl ?? ""}
+            alt={normalizeUsername(entry!.username)}
+            className="w-full h-full object-cover rounded-[26px]"
+            onError={() => setAvatarFailed(true)}
+          />
+        ) : (
+          <span className="text-[32px]">{hasEntry ? entry!.emoji : ""}</span>
+        )}
       </div>
 
       <div className="text-center">
@@ -459,6 +473,9 @@ function LeaderRow({
   isYou: boolean;
   onOpenProfile: (username: string) => void;
 }) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const showAvatarImage = !!entry.avatarUrl && !avatarFailed;
+
   return (
     <div
       className={`flex items-center gap-3 rounded-2xl px-3 py-3 border transition-colors ${
@@ -475,7 +492,16 @@ function LeaderRow({
         className="w-11 h-11 rounded-2xl flex items-center justify-center flex-none shadow"
         style={{ background: `linear-gradient(135deg, ${entry.gradientFrom}, ${entry.gradientTo})` }}
       >
-        <span className="text-xl">{entry.emoji}</span>
+        {showAvatarImage ? (
+          <img
+            src={entry.avatarUrl ?? ""}
+            alt={normalizeUsername(entry.username)}
+            className="w-full h-full object-cover rounded-2xl"
+            onError={() => setAvatarFailed(true)}
+          />
+        ) : (
+          <span className="text-xl">{entry.emoji}</span>
+        )}
       </div>
 
       <div className="flex-1 min-w-0">

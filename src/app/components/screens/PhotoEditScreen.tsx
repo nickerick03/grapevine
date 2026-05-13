@@ -11,6 +11,11 @@ import {
 } from "@phosphor-icons/react";
 import { useAuth } from "../../context/AuthContext";
 
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_UPLOAD_FILE_BYTES = 8 * 1024 * 1024;
+const AVATAR_EXPORT_SIZE = 400;
+const MAX_AVATAR_OUTPUT_BYTES = 220 * 1024;
+
 /* ─── Filter presets ─────────────────────────────────────── */
 interface FilterPreset {
   id: string;
@@ -132,6 +137,12 @@ export function PhotoEditScreen() {
     return parts.length ? parts.join(" ") : "none";
   }, [brightness, contrast, saturation, selectedFilter]);
 
+  const dataUrlSizeBytes = useCallback((dataUrl: string): number => {
+    const base64 = dataUrl.split(",")[1] ?? "";
+    const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  }, []);
+
   const getEditedDataUrl = useCallback((): Promise<string | null> => {
     return new Promise((resolve) => {
       if (!rawPhoto) return resolve(null);
@@ -139,22 +150,51 @@ export function PhotoEditScreen() {
       const ctx = canvas.getContext("2d")!;
       const img = new Image();
       img.onload = () => {
-        const size = 400;
+        const size = AVATAR_EXPORT_SIZE;
         canvas.width = size; canvas.height = size;
         ctx.clearRect(0, 0, size, size);
         ctx.filter = cssFilter();
         const ratio = Math.max(size / img.width, size / img.height);
         const w = img.width * ratio, h = img.height * ratio;
         ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
+
+        const encode = (quality: number) => canvas.toDataURL("image/jpeg", quality);
+        const high = encode(0.86);
+        if (dataUrlSizeBytes(high) <= MAX_AVATAR_OUTPUT_BYTES) {
+          resolve(high);
+          return;
+        }
+
+        const medium = encode(0.74);
+        if (dataUrlSizeBytes(medium) <= MAX_AVATAR_OUTPUT_BYTES) {
+          resolve(medium);
+          return;
+        }
+
+        const low = encode(0.62);
+        resolve(low);
       };
       img.src = rawPhoto;
     });
-  }, [rawPhoto, cssFilter]);
+  }, [rawPhoto, cssFilter, dataUrlSizeBytes]);
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSaveError(null);
+
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setSaveError("Unsupported file type. Please upload JPG, PNG, or WebP.");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_FILE_BYTES) {
+      setSaveError("This file is too large. Please upload an image under 8 MB.");
+      e.target.value = "";
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       setRawPhoto(ev.target?.result as string);
@@ -174,6 +214,11 @@ export function PhotoEditScreen() {
     setSaveError(null);
 
     const profilePhoto = rawPhoto ? await getEditedDataUrl() : undefined;
+    if (profilePhoto && dataUrlSizeBytes(profilePhoto) > MAX_AVATAR_OUTPUT_BYTES) {
+      setSaving(false);
+      setSaveError("Could not compress this image enough. Please try a different photo.");
+      return;
+    }
     const { error } = await saveUserPreferences({
       username: user.username,
       city: user.city ?? "",
@@ -287,7 +332,13 @@ export function PhotoEditScreen() {
             )}
           </div>
 
-          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFilePick} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={handleFilePick}
+          />
           <canvas ref={canvasRef} className="hidden" />
         </div>
 

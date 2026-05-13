@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { divIcon, point } from "leaflet";
+import { divIcon, latLngBounds, point } from "leaflet";
 import { CircleMarker, MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { useMapEvents } from "react-leaflet";
 
@@ -9,18 +9,26 @@ import { Pub } from "./vibe";
 function MapFocus({
   selectedPub,
   selectionFocusToken,
+  locateFocusToken,
+  searchFitToken,
+  searchFitPubs,
   userLocation,
   located,
   focusYRatio,
 }: {
   selectedPub?: Pub;
   selectionFocusToken: number;
+  locateFocusToken: number;
+  searchFitToken: number;
+  searchFitPubs: Pub[];
   userLocation?: { lat: number; lng: number };
   located?: boolean;
   focusYRatio: number;
 }) {
   const map = useMap();
   const lastSelectionFocusToken = useRef<number>(selectionFocusToken);
+  const lastLocateFocusToken = useRef<number>(locateFocusToken);
+  const lastSearchFitToken = useRef<number>(searchFitToken);
 
   useEffect(() => {
     const clampedFocusY = Math.min(0.9, Math.max(0.1, focusYRatio));
@@ -43,16 +51,42 @@ function MapFocus({
       map.flyTo(adjustedCenter, zoom, { duration });
     };
 
-    if (userLocation && located) {
+    if (userLocation && locateFocusToken !== lastLocateFocusToken.current) {
+      lastLocateFocusToken.current = locateFocusToken;
       flyToWithVerticalFocus(userLocation.lat, userLocation.lng, 14, 0.8);
-      return;
     }
 
     if (selectedPub && selectionFocusToken !== lastSelectionFocusToken.current) {
       lastSelectionFocusToken.current = selectionFocusToken;
       flyToWithVerticalFocus(selectedPub.lat, selectedPub.lng, 13, 0.5);
     }
-  }, [focusYRatio, located, map, selectedPub, selectionFocusToken, userLocation]);
+  }, [focusYRatio, locateFocusToken, located, map, selectedPub, selectionFocusToken, userLocation]);
+
+  useEffect(() => {
+    if (searchFitToken === lastSearchFitToken.current) {
+      return;
+    }
+    lastSearchFitToken.current = searchFitToken;
+
+    if (!searchFitPubs.length) {
+      return;
+    }
+
+    if (searchFitPubs.length === 1) {
+      const one = searchFitPubs[0];
+      const zoom = Math.max(map.getZoom(), 14);
+      map.flyTo([one.lat, one.lng], zoom, { duration: 0.55 });
+      return;
+    }
+
+    const bounds = latLngBounds(searchFitPubs.map((pub) => [pub.lat, pub.lng] as [number, number]));
+    map.flyToBounds(bounds, {
+      paddingTopLeft: [24, 24],
+      paddingBottomRight: [24, 24],
+      maxZoom: 14,
+      duration: 0.65,
+    });
+  }, [map, searchFitPubs, searchFitToken]);
 
   return null;
 }
@@ -140,6 +174,9 @@ export function MapView({
   mapCenter,
   mapZoom = 13,
   selectionFocusToken = 0,
+  locateFocusToken = 0,
+  searchFitToken = 0,
+  searchFitPubs = [],
   focusYRatio = 0.5,
   onMapMoveEnd,
   onMapBackgroundClick,
@@ -153,6 +190,9 @@ export function MapView({
   mapCenter?: { lat: number; lng: number };
   mapZoom?: number;
   selectionFocusToken?: number;
+  locateFocusToken?: number;
+  searchFitToken?: number;
+  searchFitPubs?: Pub[];
   focusYRatio?: number;
   onMapMoveEnd?: (payload: {
     lat: number;
@@ -243,6 +283,9 @@ export function MapView({
         <MapFocus
           selectedPub={selectedPub}
           selectionFocusToken={selectionFocusToken}
+          locateFocusToken={locateFocusToken}
+          searchFitToken={searchFitToken}
+          searchFitPubs={searchFitPubs}
           userLocation={userLocation}
           located={located}
           focusYRatio={focusYRatio}

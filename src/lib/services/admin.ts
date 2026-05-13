@@ -5,6 +5,7 @@ import {
 } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type {
+  AdminUserProfileReportRow,
   AdminDashboardTotals,
   AdminFlaggedNoteRow,
   AdminRatedVenue,
@@ -14,6 +15,8 @@ import type {
   BugReportInput,
   BugReportRecord,
   BugReportStatus,
+  UserProfileReportInput,
+  UserProfileReportStatus,
 } from "@/types/admin";
 
 function toErrorMessage(error: unknown): string {
@@ -160,6 +163,15 @@ export async function adminDeleteRatingNote(ratingId: string): Promise<void> {
   }
 }
 
+export async function adminClearNoteFlags(ratingId: string): Promise<void> {
+  const { error } = await supabase.rpc("admin_clear_note_flags", {
+    p_rating_id: ratingId,
+  });
+  if (error) {
+    throwSupabaseError(error);
+  }
+}
+
 export async function createBugReport(reporterId: string, input: BugReportInput): Promise<void> {
   const { error } = await supabase.from("bug_reports").insert({
     reporter_id: reporterId,
@@ -219,6 +231,58 @@ export async function updateAdminBugReport(
 
 export async function deleteAdminBugReport(id: string): Promise<void> {
   const { error } = await supabase.from("bug_reports").delete().eq("id", id);
+  if (error) {
+    throwSupabaseError(error);
+  }
+}
+
+export async function createUserProfileReport(
+  reportedUserId: string,
+  input: UserProfileReportInput = {},
+): Promise<{ status: "created" | "duplicate_blocked"; reportId: string | null }> {
+  const { data, error } = await supabase.rpc("submit_user_profile_report", {
+    p_reported_user_id: reportedUserId,
+    p_reason: input.reason ?? null,
+    p_message: input.message?.trim() ? input.message.trim().slice(0, 280) : null,
+  });
+
+  if (error) {
+    throwSupabaseError(error);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const statusRaw = row?.status;
+  const status = statusRaw === "duplicate_blocked" ? "duplicate_blocked" : "created";
+  return { status, reportId: row?.report_id ?? null };
+}
+
+export async function getAdminUserProfileReports(
+  limit = 300,
+  offset = 0,
+  query = "",
+  status: UserProfileReportStatus | "all" = "all",
+): Promise<AdminUserProfileReportRow[]> {
+  const { data, error } = await supabase.rpc("get_admin_user_profile_reports", {
+    p_limit: limit,
+    p_offset: offset,
+    p_query: query.trim() || null,
+    p_status: status === "all" ? null : status,
+  });
+  if (error) {
+    throwSupabaseError(error);
+  }
+  return (data ?? []) as AdminUserProfileReportRow[];
+}
+
+export async function adminUpdateUserProfileReport(
+  reportId: string,
+  input: { status?: UserProfileReportStatus; admin_note?: string },
+): Promise<void> {
+  const { error } = await supabase.rpc("admin_update_user_profile_report", {
+    p_report_id: reportId,
+    p_status: input.status ?? null,
+    p_admin_note: input.admin_note?.trim() ? input.admin_note.trim().slice(0, 280) : null,
+  });
   if (error) {
     throwSupabaseError(error);
   }

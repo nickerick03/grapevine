@@ -25,7 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { SLIDERS, VibeProfile, SliderKey } from "./vibe";
 import { VibeSlider } from "./VibeSlider";
-import { CustomPreset } from "../context/FilterContext";
+import { CustomPreset, PRICE_OPTIONS } from "../context/FilterContext";
 
 // ── 20 icon options ────────────────────────────────────────────────────────
 export const ICON_OPTIONS = [
@@ -74,6 +74,7 @@ interface Props {
   initialValues: VibeProfile;
   initialEnabled: Record<SliderKey, boolean>;
   initialMargin: number;
+  initialPrice: 1 | 2 | 3 | 4 | null;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -84,12 +85,14 @@ export function CustomPresetModal({
   initialValues,
   initialEnabled,
   initialMargin,
+  initialPrice,
 }: Props) {
   const [name,        setName]        = useState("");
   const [iconName,    setIconName]    = useState<string>("BeerStein");
   const [values,      setValues]      = useState<VibeProfile>(initialValues);
   const [enabled,     setEnabled]     = useState<Record<SliderKey, boolean>>(initialEnabled);
   const [margin,      setMargin]      = useState(initialMargin);
+  const [price,       setPrice]       = useState<1 | 2 | 3 | 4 | null>(initialPrice);
   const [nameError,   setNameError]   = useState(false);
 
   // Re-seed sliders every time the modal opens with the live filter state
@@ -100,6 +103,7 @@ export function CustomPresetModal({
       setValues(initialValues);
       setEnabled(initialEnabled);
       setMargin(initialMargin);
+      setPrice(initialPrice);
       setNameError(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,6 +118,7 @@ export function CustomPresetModal({
       values,
       enabled,
       margin,
+      price,
     });
     onClose();
   };
@@ -177,9 +182,9 @@ export function CustomPresetModal({
                 )}
               </div>
 
-              {/* 2. Profile (filters) */}
+              {/* 2. Trait sliders */}
               <div>
-                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Profile</div>
+                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Trait sliders</div>
                 <div className="space-y-2">
                   {SLIDERS.map((s) => (
                     <VibeSlider
@@ -189,13 +194,36 @@ export function CustomPresetModal({
                       onChange={(v) => setValues({ ...values, [s.key]: v })}
                       enabled={enabled[s.key]}
                       onToggle={(b) => setEnabled({ ...enabled, [s.key]: b })}
-                      showToggle
+                      toggleWithDot
                     />
                   ))}
                 </div>
               </div>
 
-              {/* 3. Match tolerance */}
+              {/* 3. Price range */}
+              <div>
+                <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price range</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {PRICE_OPTIONS.map((opt) => {
+                    const active = price === opt.value;
+                    return (
+                      <button
+                        key={opt.label}
+                        onClick={() => setPrice(active ? null : opt.value)}
+                        className={`py-2 rounded-xl text-[13px] border transition-colors ${
+                          active
+                            ? "bg-gray-900 text-white border-gray-900"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 active:bg-gray-50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4. Match tolerance */}
               <div>
                 <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Match tolerance</div>
                 <div className="grid grid-cols-4 gap-2">
@@ -218,7 +246,7 @@ export function CustomPresetModal({
                 </div>
               </div>
 
-              {/* 4. Icon picker */}
+              {/* 5. Icon picker */}
               <div>
                 <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Icon</div>
                 <div className="grid grid-cols-5 gap-2">

@@ -5,6 +5,19 @@ import { getPublicProfileByUsername, type PublicProfileEntry } from "@/lib/servi
 import { getPublicProfileCupPlacements } from "@/lib/services/cups";
 import { svgMarkupToDataUri } from "@/lib/cup-artwork";
 import type { PublicProfileCupPlacement } from "@/types/cup";
+import { useAuth } from "@/app/context/AuthContext";
+import { createUserProfileReport } from "@/lib/services/admin";
+
+const USER_REPORT_REASONS: Array<{
+  value: "harassment" | "spam" | "impersonation" | "inappropriate" | "other";
+  label: string;
+}> = [
+  { value: "harassment", label: "Harassment" },
+  { value: "spam", label: "Spam" },
+  { value: "impersonation", label: "Impersonation" },
+  { value: "inappropriate", label: "Inappropriate profile" },
+  { value: "other", label: "Other" },
+];
 
 function formatMemberSince(value: string): string {
   const date = new Date(value);
@@ -91,12 +104,19 @@ function getCupResultPointsLine(placement: PublicProfileCupPlacement): string {
 
 export function PublicProfileScreen() {
   const navigate = useNavigate();
+  const { user, openAuthModal } = useAuth();
   const { username = "" } = useParams<{ username: string }>();
   const [profile, setProfile] = useState<PublicProfileEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [scoreExpanded, setScoreExpanded] = useState(false);
   const [cupPlacements, setCupPlacements] = useState<PublicProfileCupPlacement[]>([]);
   const [placementsLoading, setPlacementsLoading] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<"harassment" | "spam" | "impersonation" | "inappropriate" | "other">("harassment");
+  const [reportMessage, setReportMessage] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportSuccess, setReportSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,6 +177,7 @@ export function PublicProfileScreen() {
     const raw = profile?.username?.trim() || decodeURIComponent(username).trim().replace(/^@+/, "");
     return raw ? `@${raw}` : "Profile";
   }, [profile?.username, username]);
+  const isOwnProfile = Boolean(user && profile && user.id === profile.userId);
 
   const podiumTier = useMemo<"gold" | "silver" | "bronze" | null>(() => {
     if (!profile?.scoreVisible) {
@@ -203,6 +224,59 @@ export function PublicProfileScreen() {
     profile?.ratingCount,
     profile?.scoreVisible,
   ]);
+
+  const openReportModal = () => {
+    if (!user) {
+      openAuthModal("login");
+      return;
+    }
+    if (isOwnProfile) {
+      return;
+    }
+    setReportError(null);
+    setReportSuccess(null);
+    setReportOpen(true);
+  };
+
+  const submitUserReport = async () => {
+    if (!profile) return;
+    if (!user) {
+      openAuthModal("login");
+      return;
+    }
+    if (user.id === profile.userId) {
+      setReportError("You cannot report your own profile.");
+      return;
+    }
+
+    setReportSubmitting(true);
+    setReportError(null);
+    try {
+      const result = await createUserProfileReport(profile.userId, {
+        reason: reportReason,
+        message: reportMessage.trim() ? reportMessage.trim().slice(0, 280) : null,
+      });
+      if (result.status === "duplicate_blocked") {
+        setReportSuccess("You already sent a similar report recently. Thanks, we’ve got it.");
+      } else {
+        setReportSuccess("Report submitted. Our moderation team will review it.");
+      }
+      setReportOpen(false);
+      setReportMessage("");
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : "Could not submit report.");
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!reportSuccess) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setReportSuccess(null), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [reportSuccess]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#fbf8f3]">
@@ -259,6 +333,15 @@ export function PublicProfileScreen() {
                       </div>
                     ) : null}
                     <div className="mt-1 text-[12px] text-gray-400">Member since {formatMemberSince(profile.createdAt)}</div>
+                    {!isOwnProfile ? (
+                      <button
+                        type="button"
+                        onClick={openReportModal}
+                        className="mt-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700 hover:bg-rose-100"
+                      >
+                        Report user
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -413,6 +496,60 @@ export function PublicProfileScreen() {
           </div>
         )}
       </div>
+      {reportOpen ? (
+        <div className="fixed inset-0 z-[110] bg-black/40 flex items-center justify-center px-4" onClick={() => setReportOpen(false)}>
+          <div
+            className="w-full max-w-sm rounded-3xl bg-white border border-gray-200 shadow-[0_18px_52px_rgba(0,0,0,.2)] p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="text-[15px] text-gray-900">Report @{profile?.username ?? "user"}</div>
+            <div className="text-[12px] text-gray-500 mt-1">Tell us why this profile should be reviewed.</div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {USER_REPORT_REASONS.map((reason) => {
+                const active = reason.value === reportReason;
+                return (
+                  <button
+                    key={reason.value}
+                    type="button"
+                    onClick={() => setReportReason(reason.value)}
+                    className={`rounded-xl border px-2 py-1.5 text-[12px] ${
+                      active ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-700"
+                    }`}
+                  >
+                    {reason.label}
+                  </button>
+                );
+              })}
+            </div>
+            <textarea
+              value={reportMessage}
+              onChange={(event) => setReportMessage(event.target.value.slice(0, 280))}
+              placeholder="Optional note for moderators"
+              rows={3}
+              className="mt-3 w-full rounded-xl border border-gray-200 px-3 py-2 text-[12px] outline-none focus:border-gray-400"
+            />
+            {reportError ? <div className="mt-2 text-[12px] text-rose-600">{reportError}</div> : null}
+            <div className="mt-3 flex gap-2">
+              <button type="button" onClick={() => setReportOpen(false)} className="flex-1 rounded-xl border border-gray-200 py-2 text-[12px] text-gray-700">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitUserReport()}
+                disabled={reportSubmitting}
+                className="flex-1 rounded-xl bg-rose-600 py-2 text-[12px] text-white disabled:opacity-60"
+              >
+                {reportSubmitting ? "Submitting..." : "Submit report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {reportSuccess ? (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[120] rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-[12px] text-emerald-700">
+          {reportSuccess}
+        </div>
+      ) : null}
     </div>
   );
 }

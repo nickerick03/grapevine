@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { WarningCircle } from "@phosphor-icons/react";
 import { getAdminDashboardTotals } from "@/lib/services/admin";
 import type { AdminDashboardTotals } from "@/types/admin";
-import { AdminLayout } from "./admin/AdminLayout";
+import { AdminLayout, useAdminBadgeContext } from "./admin/AdminLayout";
 import { useAdminGuard } from "./admin/useAdminGuard";
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -12,6 +12,26 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
       <div className="text-[11px] text-gray-500">{label}</div>
       <div className="mt-1 text-[20px] text-gray-900">{value}</div>
     </div>
+  );
+}
+
+function AdminActionCard({
+  label,
+  hasNew,
+  onClick,
+}: {
+  label: string;
+  hasNew?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="relative rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
+    >
+      {hasNew ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500" aria-hidden="true" /> : null}
+      {label}
+    </button>
   );
 }
 
@@ -63,6 +83,31 @@ export function AdminOverviewScreen() {
 
   return (
     <AdminLayout title="Admin">
+      <AdminOverviewContent
+        loading={loading}
+        error={error}
+        totals={totals}
+        onNavigate={navigate}
+      />
+    </AdminLayout>
+  );
+}
+
+function AdminOverviewContent({
+  loading,
+  error,
+  totals,
+  onNavigate,
+}: {
+  loading: boolean;
+  error: string | null;
+  totals: AdminDashboardTotals | null;
+  onNavigate: (path: string) => void;
+}) {
+  const { badges } = useAdminBadgeContext();
+
+  return (
+    <>
       {error ? (
         <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[12px] text-rose-700">
           {error}
@@ -92,39 +137,39 @@ export function AdminOverviewScreen() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-2">
-            <button
-              onClick={() => navigate("/admin/cups")}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
-            >
-              Cup Maker: create, activate, finalize, and manage rewards
-            </button>
-            <button
-              onClick={() => navigate("/admin/venues")}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
-            >
-              Manage rated venues, ratings, and notes
-            </button>
-            <button
-              onClick={() => navigate("/admin/users")}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
-            >
-              Manage users, scores, freeze state, and deletion
-            </button>
-            <button
-              onClick={() => navigate("/admin/bugs")}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
-            >
-              Triage bug reports
-            </button>
-            <button
-              onClick={() => navigate("/admin/legal")}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] text-gray-800"
-            >
-              Edit legal pages content
-            </button>
+            <AdminActionCard
+              hasNew={badges.cups}
+              onClick={() => onNavigate("/admin/cups")}
+              label="Cup Maker: create, activate, finalize, and manage rewards"
+            />
+            <AdminActionCard
+              hasNew={badges.venues}
+              onClick={() => onNavigate("/admin/venues")}
+              label="Manage rated venues, ratings, and notes"
+            />
+            <AdminActionCard
+              hasNew={badges.users}
+              onClick={() => onNavigate("/admin/users")}
+              label="Manage users, scores, freeze state, and deletion"
+            />
+            <AdminActionCard
+              hasNew={badges.flags}
+              onClick={() => onNavigate("/admin/flags")}
+              label="Review flagged notes"
+            />
+            <AdminActionCard
+              hasNew={badges.bugs}
+              onClick={() => onNavigate("/admin/bugs")}
+              label="Triage bug reports"
+            />
+            <AdminActionCard
+              hasNew={badges.legal}
+              onClick={() => onNavigate("/admin/legal")}
+              label="Edit legal pages content"
+            />
           </div>
         </>
       )}
-    </AdminLayout>
+    </>
   );
 }

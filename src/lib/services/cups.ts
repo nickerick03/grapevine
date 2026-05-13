@@ -27,6 +27,7 @@ type RawCupLeaderboardRow = {
   rank: number;
   user_id: string;
   username: string | null;
+  avatar_url: string | null;
   emoji: string | null;
   gradient_from: string | null;
   gradient_to: string | null;
@@ -175,6 +176,7 @@ export async function getCupLeaderboard(limit = 50, cupId?: string): Promise<Cup
     rank: row.rank,
     userId: row.user_id,
     username: row.username ?? "grapevine_user",
+    avatarUrl: row.avatar_url ?? null,
     emoji: row.emoji ?? "🦊",
     gradientFrom: row.gradient_from ?? "#F59E0B",
     gradientTo: row.gradient_to ?? "#EF4444",

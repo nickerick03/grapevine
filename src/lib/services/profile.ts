@@ -50,6 +50,7 @@ export interface LeaderboardEntry {
   rank: number;
   userId: string;
   username: string;
+  avatarUrl: string | null;
   emoji: string;
   gradientFrom: string;
   gradientTo: string;
@@ -208,6 +209,7 @@ type RawLeaderboardRow = {
   rank: number;
   user_id: string;
   username: string | null;
+  avatar_url: string | null;
   emoji: string | null;
   gradient_from: string | null;
   gradient_to: string | null;
@@ -265,6 +267,7 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
     rank: row.rank,
     userId: row.user_id,
     username: row.username ?? "grapevine_user",
+    avatarUrl: row.avatar_url,
     emoji: row.emoji ?? "🦊",
     gradientFrom: row.gradient_from ?? "#F59E0B",
     gradientTo: row.gradient_to ?? "#EF4444",

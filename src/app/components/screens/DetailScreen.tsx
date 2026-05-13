@@ -29,9 +29,11 @@ import { PubCard } from "../PubCard";
 import { VenueImage } from "../VenueImage";
 import { AdUnit } from "../AdUnit";
 import { useAuth } from "../../context/AuthContext";
+import { useFilters } from "../../context/FilterContext";
 import { usePlaces } from "../../context/PlacesContext";
 import { useUI } from "../../context/UIContext";
 import { calculateStrictSimilarityMatch } from "../similarityScore";
+import { calculatePubMatchPercent, isPerfectPubMatch } from "../filtering";
 import { formatPubAddress } from "../placeAddress";
 import { getTraitPillSlug } from "@/lib/chips";
 import {
@@ -61,6 +63,8 @@ const detailMarkerIcon = divIcon({
   iconSize: [14, 14],
   iconAnchor: [7, 7],
 });
+
+const RECENT_VENUES_KEY = "grapevine.recentVenueIds.v1";
 
 function confidence(n: number) {
   if (n === 0) return { label: "No ratings yet", color: "text-gray-700 bg-gray-50 border-gray-200" };
@@ -94,10 +98,20 @@ export function DetailScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, openAuthModal } = useAuth();
+  const { values, enabled, margin, marginEnabled, selectedCity, selectedArea, searchRadius, venueTypes, price } = useFilters();
   const { openRate } = useUI();
   const { pubs } = usePlaces();
   const { id } = useParams<{ id: string }>();
-  const externalPubFromState = (location.state as { externalPub?: Pub } | null)?.externalPub;
+  const incomingState = (location.state ?? null) as {
+    fromSimilarFlow?: boolean;
+    similarDepth?: number;
+    backTarget?: string;
+    externalPub?: Pub;
+  } | null;
+  const externalPubFromState = incomingState?.externalPub;
+  const backTarget = incomingState?.backTarget ?? "/";
+  const incomingDepth = incomingState?.similarDepth ?? 1;
+  const nextSimilarDepth = incomingState?.fromSimilarFlow ? incomingDepth + 1 : 1;
   const pub = useMemo(() => {
     const dbPub = pubs.find((p) => p.id === id);
     if (dbPub) {
@@ -109,7 +123,38 @@ export function DetailScreen() {
     return null;
   }, [externalPubFromState, id, pubs]);
   const conf = confidence(pub?.ratings ?? 0);
-  const perfectMatch = isPerfectMatch(pub?.match ?? 0, pub?.perfectMatch);
+  const hasActivePreferenceSliders = useMemo(
+    () => SLIDERS.some((slider) => enabled[slider.key]),
+    [enabled],
+  );
+  const matchDisplay = useMemo(() => {
+    if (!pub || pub.ratings <= 0) {
+      return { hasMatch: false, reason: "unrated" as const, match: 0, perfect: false };
+    }
+
+    if (!hasActivePreferenceSliders) {
+      return { hasMatch: false, reason: "no-preferences" as const, match: 0, perfect: false };
+    }
+
+    const filterInput = {
+      query: "",
+      values,
+      enabled,
+      margin,
+      marginEnabled,
+      selectedCity,
+      selectedArea,
+      searchRadius,
+      venueTypes,
+      price,
+      showTouristHeavyBars: true,
+    };
+    const computedMatch = calculatePubMatchPercent(pub, filterInput);
+    const perfect = isPerfectPubMatch(pub, filterInput);
+
+    return { hasMatch: true, reason: null as const, match: computedMatch, perfect };
+  }, [enabled, hasActivePreferenceSliders, margin, marginEnabled, price, pub, searchRadius, selectedArea, selectedCity, values, venueTypes]);
+  const perfectMatch = isPerfectMatch(matchDisplay.match, matchDisplay.perfect);
   const [saved, setSaved] = useState(false);
   const [comments, setComments] = useState<PlaceNoteCard[]>([]);
   const [pendingNoteIds, setPendingNoteIds] = useState<Record<string, boolean>>({});
@@ -172,9 +217,63 @@ export function DetailScreen() {
   }, [pub]);
 
   const directionsQuery = useMemo(
-    () => (pub ? `${pub.lat},${pub.lng}` : ""),
-    [pub],
+    () => {
+      if (!pub) return "";
+      const hasCoords = Number.isFinite(pub.lat) && Number.isFinite(pub.lng);
+      if (hasCoords) {
+        return `${pub.lat.toFixed(6)}, ${pub.lng.toFixed(6)}`;
+      }
+      return fullAddress || "Location details unavailable";
+    },
+    [fullAddress, pub],
   );
+
+  const hasDirectionTarget = useMemo(() => {
+    if (!pub) return false;
+    const hasCoords = Number.isFinite(pub.lat) && Number.isFinite(pub.lng);
+    const hasAddress = fullAddress.trim().length > 0;
+    return hasCoords || hasAddress;
+  }, [fullAddress, pub]);
+
+  const isMobileDevice = useMemo(
+    () => (typeof navigator !== "undefined"
+      ? /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "")
+      : false),
+    [],
+  );
+
+  const isAppleDevice = useMemo(
+    () => (typeof navigator !== "undefined" ? /iPhone|iPad|iPod/i.test(navigator.userAgent || "") : false),
+    [],
+  );
+
+  const buildDirectionsUrl = (origin?: { lat: number; lng: number }) => {
+    if (!pub) return "";
+    const hasCoords = Number.isFinite(pub.lat) && Number.isFinite(pub.lng);
+    const hasAddress = fullAddress.trim().length > 0;
+    if (!hasCoords && !hasAddress) return "";
+
+    const destinationValue = hasCoords ? `${pub.lat},${pub.lng}` : fullAddress;
+
+    if (isMobileDevice && isAppleDevice) {
+      const apple = new URL("https://maps.apple.com/");
+      apple.searchParams.set("daddr", destinationValue);
+      if (origin) {
+        apple.searchParams.set("saddr", `${origin.lat},${origin.lng}`);
+      }
+      return apple.toString();
+    }
+
+    const google = new URL("https://www.google.com/maps/dir/");
+    google.searchParams.set("api", "1");
+    google.searchParams.set("destination", destinationValue);
+    google.searchParams.set("travelmode", "walking");
+    google.searchParams.set("dir_action", "navigate");
+    if (origin) {
+      google.searchParams.set("origin", `${origin.lat},${origin.lng}`);
+    }
+    return google.toString();
+  };
 
   const openPill = (pill: string) => {
     navigate(`/pill/${getTraitPillSlug(pill)}`);
@@ -211,6 +310,19 @@ export function DetailScreen() {
       websiteHref,
       hasAny: Boolean(openingHours || phone || email || websiteHref),
     };
+  }, [pub]);
+
+  useEffect(() => {
+    if (!pub) return;
+    try {
+      const raw = window.localStorage.getItem(RECENT_VENUES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const ids = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0) : [];
+      const next = [pub.id, ...ids.filter((id) => id !== pub.id)].slice(0, 40);
+      window.localStorage.setItem(RECENT_VENUES_KEY, JSON.stringify(next));
+    } catch {
+      // Ignore localStorage failures.
+    }
   }, [pub]);
 
   useEffect(() => {
@@ -329,20 +441,24 @@ export function DetailScreen() {
 
   const handleGetDirections = () => {
     if (!pub) return;
-    const popout = window.open("", "_blank", "noopener,noreferrer");
-
-    const destination = `${pub.lat},${pub.lng}`;
-    const target = new URL("https://www.google.com/maps/dir/");
-    target.searchParams.set("api", "1");
-    target.searchParams.set("destination", destination);
-    target.searchParams.set("travelmode", "walking");
-    target.searchParams.set("dir_action", "navigate");
+    if (!hasDirectionTarget) {
+      window.alert("We couldn’t find enough location details for this venue.");
+      return;
+    }
+    const popout = !isMobileDevice ? window.open("", "_blank", "noopener,noreferrer") : null;
 
     const openTarget = (origin?: { lat: number; lng: number }) => {
-      if (origin) {
-        target.searchParams.set("origin", `${origin.lat},${origin.lng}`);
+      const nextUrl = buildDirectionsUrl(origin);
+      if (!nextUrl) {
+        window.alert("We couldn’t find enough location details for this venue.");
+        return;
       }
-      const nextUrl = target.toString();
+
+      if (isMobileDevice) {
+        window.location.assign(nextUrl);
+        return;
+      }
+
       if (popout && !popout.closed) {
         popout.location.replace(nextUrl);
       } else {
@@ -458,16 +574,22 @@ export function DetailScreen() {
     setNotePending(ratingId, true);
 
     try {
-      await flagNote(user.id, ratingId, reportReason, reportDetails);
+      const reportResult = await flagNote(user.id, ratingId, reportReason, reportDetails);
       setComments((previous) =>
         previous.map((entry) => (
-          entry.rating_id === ratingId ? { ...entry, flagged_by_me: true } : entry
+          entry.rating_id === ratingId
+            ? { ...entry, flagged_by_me: true, my_flag_count: reportResult.report_count }
+            : entry
         )),
       );
       setReportModalNote(null);
       setReportDetails("");
       setReportReason("incorrect");
-      setReportSuccess("Thanks. Your report was submitted.");
+      if (reportResult.status === "limit_reached" || reportResult.report_count >= 3) {
+        setReportSuccess("Thanks. Your final report was saved.");
+      } else {
+        setReportSuccess("Thanks. Your report was submitted.");
+      }
       window.setTimeout(() => setReportSuccess(null), 2400);
       setReportError(null);
     } catch (error) {
@@ -655,7 +777,14 @@ export function DetailScreen() {
         </button>
         {!pub.isExternalCandidate ? (
           <button
-            onClick={() => navigate(`/similar/${pub.id}`)}
+            onClick={() =>
+              navigate(`/similar/${pub.id}`, {
+                state: {
+                  fromSimilarFlow: true,
+                  similarDepth: nextSimilarDepth,
+                  backTarget,
+                },
+              })}
             className="w-full mb-3 py-3 rounded-2xl bg-gray-900 text-white shadow-sm flex items-center justify-center gap-2"
           >
             Find similar places
@@ -670,18 +799,18 @@ export function DetailScreen() {
                 <MapPinLucide className="w-3.5 h-3.5" /> {formatPubAddress(pub)}
               </div>
             </div>
-            {pub.ratings > 0 ? (
+            {matchDisplay.hasMatch ? (
               <div
                 className={`px-2.5 py-1 rounded-full border whitespace-nowrap ${
                   perfectMatch ? "perfect-match-pill text-[11px] tracking-wide font-semibold" : "text-[12px]"
                 }`}
-                style={getMatchPillStyle(pub.match, pub.perfectMatch)}
+                style={getMatchPillStyle(matchDisplay.match, matchDisplay.perfect)}
               >
-                <span>{getMatchPillLabel(pub.match, pub.perfectMatch)}</span>
+                <span>{getMatchPillLabel(matchDisplay.match, matchDisplay.perfect)}</span>
               </div>
             ) : (
               <div className="px-2.5 py-1 rounded-full bg-gray-50 text-gray-600 text-[12px] border border-gray-200">
-                Unrated
+                {matchDisplay.reason === "no-preferences" ? "Set filters to see match" : "Unrated"}
               </div>
             )}
           </div>
@@ -788,7 +917,7 @@ export function DetailScreen() {
                             ) : (
                               <>
                                 {canShowOriginal ? <DropdownMenuSeparator /> : null}
-                                {c.flagged_by_me ? (
+                                {c.my_flag_count >= 3 ? (
                                   <DropdownMenuItem
                                     disabled
                                     className="text-[12px] text-emerald-700 data-[disabled]:opacity-100"
@@ -1017,7 +1146,12 @@ export function DetailScreen() {
           </div>
           <button
             onClick={handleGetDirections}
-            className="mt-2.5 w-full py-2.5 rounded-xl bg-white border border-gray-200 text-gray-800 text-[13px] flex items-center justify-center gap-2 hover:border-gray-300 transition-colors shadow-sm"
+            disabled={!hasDirectionTarget}
+            className={`mt-2.5 w-full py-2.5 rounded-xl text-[13px] flex items-center justify-center gap-2 transition-colors shadow-sm ${
+              hasDirectionTarget
+                ? "bg-white border border-gray-200 text-gray-800 hover:border-gray-300"
+                : "bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+            }`}
           >
             <Navigation className="w-3.5 h-3.5 text-blue-500" />
             Get directions
@@ -1042,7 +1176,14 @@ export function DetailScreen() {
           )}
           {!pub.isExternalCandidate ? (
             <button
-              onClick={() => navigate(`/similar/${pub.id}`)}
+              onClick={() =>
+                navigate(`/similar/${pub.id}`, {
+                  state: {
+                    fromSimilarFlow: true,
+                    similarDepth: nextSimilarDepth,
+                    backTarget,
+                  },
+                })}
               className="mt-2 w-full py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 text-[13px] hover:border-gray-300 transition-colors"
             >
               Show all similar places

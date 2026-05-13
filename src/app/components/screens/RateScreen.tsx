@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, Check, MapPin, Search } from "lucide-react";
 import { Sun, Moon, Coffee, Wine, Star } from "@phosphor-icons/react";
+import confetti from "canvas-confetti";
 import { SLIDERS, VibeProfile } from "../vibe";
 import { VibeSlider } from "../VibeSlider";
 import { ImageWithFallback } from "../figma/ImageWithFallback";
@@ -9,8 +10,9 @@ import { useAuth } from "../../context/AuthContext";
 import { usePlaces } from "../../context/PlacesContext";
 import { PRICE_OPTIONS } from "../../context/FilterContext";
 import { formatPubAddress } from "../placeAddress";
-import type { VisitContext } from "@/types/place";
+import { normalizeVisitContexts, type VisitContext } from "@/types/place";
 import { getUserRatingForPlace, upsertPlaceRating } from "@/lib/services/places";
+import { getGrapevineScoreByUserId, getLeaderboard, type GrapevineScoreBreakdown } from "@/lib/services/profile";
 
 const VISIT_OPTIONS = [
   {
@@ -60,6 +62,13 @@ const VISIT_OPTIONS = [
   },
 ] as const;
 
+const CONFETTI_COLORS = ["#F59E0B", "#EF4444", "#10B981", "#3B82F6", "#8B5CF6", "#F97316"];
+
+function formatPoints(value: number): string {
+  const rounded = Number(value.toFixed(1));
+  return Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
+}
+
 export function RateScreen() {
   const navigate = useNavigate();
   const { user, openAuthModal } = useAuth();
@@ -70,12 +79,75 @@ export function RateScreen() {
   const [picking, setPicking] = useState(false);
   const [values, setValues] = useState<VibeProfile>({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
   const [price, setPrice] = useState<1 | 2 | 3 | 4 | null>(null);
-  const [visit, setVisit] = useState<VisitContext | null>(null);
+  const [visits, setVisits] = useState<VisitContext[]>([]);
   const [note, setNote] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasExistingRating, setHasExistingRating] = useState(false);
+  const [earnedPoints, setEarnedPoints] = useState<number | null>(null);
+  const [rankBefore, setRankBefore] = useState<number | null>(null);
+  const [rankAfter, setRankAfter] = useState<number | null>(null);
+  const [rankPreviewLoading, setRankPreviewLoading] = useState(false);
+  const [scorePulse, setScorePulse] = useState(false);
+  const [animatedEarnedPoints, setAnimatedEarnedPoints] = useState(0);
+  const [earnedBreakdownLines, setEarnedBreakdownLines] = useState<string[]>([]);
+  const confettiPlayedRef = useRef(false);
+
+  useEffect(() => {
+    if (!submitted || confettiPlayedRef.current) {
+      return;
+    }
+
+    confettiPlayedRef.current = true;
+
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
+    const fire = (particleCount: number, spread: number, velocity: number, drift: number) => {
+      confetti({
+        particleCount,
+        spread,
+        startVelocity: velocity,
+        gravity: 1.15,
+        decay: 0.93,
+        scalar: 0.95,
+        drift,
+        ticks: 300,
+        origin: { x: 0.5, y: 1.03 },
+        colors: CONFETTI_COLORS,
+      });
+    };
+
+    fire(52, 72, 72, -0.1);
+    window.setTimeout(() => fire(38, 95, 60, 0.12), 110);
+    window.setTimeout(() => fire(24, 112, 50, -0.04), 220);
+  }, [submitted]);
+
+  useEffect(() => {
+    if (!submitted || earnedPoints == null || earnedPoints <= 0) {
+      setAnimatedEarnedPoints(0);
+      return;
+    }
+
+    let rafId = 0;
+    const durationMs = 1300;
+    const start = performance.now();
+    const target = earnedPoints;
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimatedEarnedPoints(target * eased);
+      if (t < 1) {
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [earnedPoints, submitted]);
 
   useEffect(() => {
     if (id) {
@@ -94,7 +166,7 @@ export function RateScreen() {
     if (!user || !pub) {
       setValues({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
       setPrice(null);
-      setVisit(null);
+      setVisits([]);
       setNote("");
       setHasExistingRating(false);
       return;
@@ -114,7 +186,7 @@ export function RateScreen() {
         if (!existing) {
           setValues({ modern: 50, lively: 50, premium: 50, touristy: 50, spacious: 50 });
           setPrice(null);
-          setVisit(null);
+          setVisits([]);
           setNote("");
           setHasExistingRating(false);
           return;
@@ -128,7 +200,7 @@ export function RateScreen() {
           spacious: existing.cozy_spacious,
         });
         setPrice(existing.price_range ?? null);
-        setVisit(existing.visit_context ?? null);
+        setVisits(normalizeVisitContexts(existing.visit_contexts ?? existing.visit_context ?? null));
         setNote(existing.note ?? "");
         setHasExistingRating(true);
       } catch {
@@ -173,8 +245,13 @@ export function RateScreen() {
   }
 
   if (submitted) {
+    const hasRankPreview = rankBefore != null && rankAfter != null;
+    const rankImproved = hasRankPreview && rankAfter < rankBefore;
+    const rankChanged = hasRankPreview && rankAfter !== rankBefore;
+    const resolvedEarnedPoints = earnedPoints ?? 0;
+
     return (
-      <div className="absolute inset-0 bg-[#fbf8f3] flex flex-col items-center justify-center px-6 text-center">
+      <div className="absolute inset-0 bg-[#fbf8f3] flex flex-col items-center justify-center px-6 text-center overflow-hidden">
         <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
           <Check className="w-8 h-8 text-emerald-600" />
         </div>
@@ -182,6 +259,42 @@ export function RateScreen() {
         <div className="text-[13px] text-gray-600 mt-2 max-w-xs">
           Your rating for <span className="text-gray-900">{pub.name}</span> just contributed to its community place profile.
         </div>
+        {resolvedEarnedPoints > 0 ? (
+          <div className="mt-4 w-full max-w-sm rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 text-left">
+            <div>
+              <div
+                className={`mt-1 text-[22px] leading-none font-semibold text-emerald-700 transition-transform duration-300 ${
+                  scorePulse ? "scale-110" : "scale-100"
+                }`}
+              >
+                +{formatPoints(animatedEarnedPoints)} pts
+              </div>
+            </div>
+            <div className="mt-1.5 space-y-1">
+              {earnedBreakdownLines.map((line) => (
+                <div key={line} className="text-[11px] text-emerald-700/90">
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {rankPreviewLoading ? (
+          <div className="mt-3 w-full max-w-sm rounded-2xl border border-gray-100 bg-white px-4 py-3 text-left">
+            <div className="text-[11px] text-gray-500">Checking leaderboard update…</div>
+          </div>
+        ) : hasRankPreview ? (
+          <div className="mt-3 w-full max-w-sm rounded-2xl border border-gray-100 bg-white px-4 py-3 text-left">
+            <div className="text-[11px] text-gray-500 uppercase tracking-wide">Congratulations!</div>
+            <div className="mt-1 text-[14px] text-gray-900">
+              {rankImproved
+                ? `You moved up from #${rankBefore} to #${rankAfter}.`
+                : rankChanged
+                  ? `You are now ranked #${rankAfter} (was #${rankBefore}).`
+                  : `You are currently ranked #${rankAfter}.`}
+            </div>
+          </div>
+        ) : null}
         <div className="mt-6 p-4 rounded-2xl bg-white border border-gray-100 w-full max-w-sm">
           <div className="text-[12px] text-gray-500 mb-2">Your contribution</div>
           <div className="space-y-1.5">
@@ -217,7 +330,31 @@ export function RateScreen() {
 
     setSubmitting(true);
     setError(null);
+    setRankPreviewLoading(true);
+    setEarnedPoints(null);
+    setAnimatedEarnedPoints(0);
+    setEarnedBreakdownLines([]);
+    setRankBefore(null);
+    setRankAfter(null);
     try {
+      let beforeScore = 0;
+      let beforeRank: number | null = null;
+      let beforeBreakdown: GrapevineScoreBreakdown | null = null;
+
+      try {
+        const [scoreBeforeData, leaderboardBefore] = await Promise.all([
+          getGrapevineScoreByUserId(user.id),
+          getLeaderboard(250),
+        ]);
+        beforeBreakdown = scoreBeforeData;
+        beforeScore = scoreBeforeData.grapevineScore;
+        beforeRank = leaderboardBefore.find((entry) => entry.userId === user.id)?.rank ?? null;
+      } catch {
+        beforeScore = 0;
+        beforeRank = null;
+        beforeBreakdown = null;
+      }
+
       await upsertPlaceRating({
         place_id: pub.id,
         user_id: user.id,
@@ -227,16 +364,67 @@ export function RateScreen() {
         local_touristy: values.touristy,
         cozy_spacious: values.spacious,
         price_range: price,
-        visit_context: visit,
+        visit_contexts: visits.length > 0 ? visits : null,
+        visit_context: visits[0] ?? null,
         note: note.trim() ? note.trim().slice(0, 160) : null,
       });
       await refresh();
+
+      let afterScore = beforeScore;
+      let afterRank: number | null = null;
+      let afterBreakdown: GrapevineScoreBreakdown | null = null;
+      try {
+        const [scoreAfterData, leaderboardAfter] = await Promise.all([
+          getGrapevineScoreByUserId(user.id),
+          getLeaderboard(250),
+        ]);
+        afterBreakdown = scoreAfterData;
+        afterScore = scoreAfterData.grapevineScore;
+        afterRank = leaderboardAfter.find((entry) => entry.userId === user.id)?.rank ?? null;
+      } catch {
+        afterScore = beforeScore;
+        afterRank = null;
+        afterBreakdown = null;
+      }
+
+      const delta = Math.max(0, Number((afterScore - beforeScore).toFixed(1)));
+      setEarnedPoints(delta);
+      if (beforeBreakdown && afterBreakdown && delta > 0) {
+        const helpfulVotesDelta = Math.max(0, afterBreakdown.helpfulVotesReceived - beforeBreakdown.helpfulVotesReceived);
+        const firstRatingsDelta = Math.max(0, afterBreakdown.firstRatingsSubmitted - beforeBreakdown.firstRatingsSubmitted);
+        const uniqueCitiesDelta = Math.max(0, afterBreakdown.uniqueCitiesCovered - beforeBreakdown.uniqueCitiesCovered);
+        const reviewsDelta = Math.max(0, afterBreakdown.reviewsSubmitted - beforeBreakdown.reviewsSubmitted);
+        const notesDelta = Math.max(0, afterBreakdown.notesSubmitted - beforeBreakdown.notesSubmitted);
+
+        const lines: string[] = [];
+        if (reviewsDelta > 0) lines.push(`+${formatPoints(reviewsDelta * 1)} from review submitted`);
+        if (notesDelta > 0) lines.push(`+${formatPoints(notesDelta * 3)} from note submitted`);
+        if (firstRatingsDelta > 0) lines.push(`+${formatPoints(firstRatingsDelta * 5)} from first rating on a new place`);
+        if (uniqueCitiesDelta > 0) lines.push(`+${formatPoints(uniqueCitiesDelta * 10)} from unique city coverage`);
+        if (helpfulVotesDelta > 0) lines.push(`+${formatPoints(helpfulVotesDelta * 0.1)} from helpful votes`);
+        setEarnedBreakdownLines(lines);
+      } else {
+        setEarnedBreakdownLines([]);
+      }
+      setRankBefore(beforeRank);
+      setRankAfter(afterRank);
       setSubmitted(true);
+      setScorePulse(true);
+      window.setTimeout(() => setScorePulse(false), 420);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not submit rating.");
     } finally {
       setSubmitting(false);
+      setRankPreviewLoading(false);
     }
+  };
+
+  const toggleVisit = (context: VisitContext) => {
+    setVisits((current) => (
+      current.includes(context)
+        ? current.filter((item) => item !== context)
+        : [...current, context]
+    ));
   };
 
   return (
@@ -352,16 +540,19 @@ export function RateScreen() {
           </div>
         </div>
 
-        {/* When did you visit — visual card grid */}
+        {/* When did you visit — multi-select card grid */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">When did you visit?</div>
+          <div className="mb-2 text-[12px] text-gray-500">
+            Select all that apply.
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {VISIT_OPTIONS.slice(0, 4).map((opt) => {
-              const selected = visit === opt.value;
+              const selected = visits.includes(opt.value as VisitContext);
               return (
                 <button
                   key={opt.value}
-                  onClick={() => setVisit(opt.value as VisitContext)}
+                  onClick={() => toggleVisit(opt.value as VisitContext)}
                   className="rounded-2xl p-3 flex flex-col items-start gap-2 border transition-all text-left"
                   style={
                     selected
@@ -389,11 +580,11 @@ export function RateScreen() {
             {/* Late night — full width */}
             {(() => {
               const opt = VISIT_OPTIONS[4];
-              const selected = visit === opt.value;
+              const selected = visits.includes(opt.value as VisitContext);
               return (
                 <button
                   key={opt.value}
-                  onClick={() => setVisit(opt.value as VisitContext)}
+                  onClick={() => toggleVisit(opt.value as VisitContext)}
                   className="col-span-2 rounded-2xl px-4 py-3 flex items-center gap-3 border transition-all"
                   style={
                     selected
@@ -416,6 +607,18 @@ export function RateScreen() {
               );
             })()}
           </div>
+          {visits.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {visits.map((context) => (
+                <span
+                  key={context}
+                  className="px-2 py-1 rounded-full text-[11px] bg-gray-100 text-gray-700 border border-gray-200"
+                >
+                  {context}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Quick note */}

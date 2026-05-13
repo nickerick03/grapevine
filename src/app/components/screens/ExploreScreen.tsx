@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Search, SlidersHorizontal, User, Plus } from "lucide-react";
 import { CircleNotch, Crosshair, Eye, EyeSlash, MagnifyingGlassMinus } from "@phosphor-icons/react";
 import { SLIDERS, type Pub } from "../vibe";
 import {
   calculatePubMatchPercent,
   filterPubs,
+  getSearchNameIntentScore,
+  getSearchPriority,
+  getSearchRelevance,
   getCityCenter,
   haversineKm,
   isPerfectPubMatch,
@@ -36,6 +39,8 @@ const CITY_TO_COUNTRY: Record<string, string> = {
 const EXPLORE_MAP_STATE_KEY = "grapevine.explore.mapState.v1";
 const EXPLORE_GUEST_SESSION_KEY = "grapevine.explore.guestSession.v1";
 const EXPLORE_ONBOARDING_DONE_KEY = "grapevine.explore.onboardingDone.v1";
+const EXPLORE_SEARCH_HISTORY_KEY = "grapevine.explore.searchHistory.v1";
+const RECENT_VENUES_KEY = "grapevine.recentVenueIds.v1";
 
 type PersistedExploreMapState = {
   center: { lat: number; lng: number };
@@ -208,6 +213,7 @@ function computeRadiusFromBounds(
 
 export function ExploreScreen() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, openAuthModal, authModalOpen } = useAuth();
   const { pubs, loading: placesLoading } = usePlaces();
   const {
@@ -234,6 +240,9 @@ export function ExploreScreen() {
   const [debouncedQuery, setDebouncedQuery] = useState(() => (persistedMapState?.query ?? "").trim());
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [selectionFocusToken, setSelectionFocusToken] = useState(0);
+  const [locateFocusToken, setLocateFocusToken] = useState(0);
+  const [searchFitToken, setSearchFitToken] = useState(0);
+  const [searchFitPubs, setSearchFitPubs] = useState<Pub[]>([]);
   const [located, setLocated] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | undefined>();
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number }>(() => {
@@ -276,18 +285,70 @@ export function ExploreScreen() {
   });
   const [showCreateProfileGate, setShowCreateProfileGate] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [headerAvatarFailed, setHeaderAvatarFailed] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [recentVenuesVersion, setRecentVenuesVersion] = useState(0);
   const previousUserIdRef = useRef<string | null>(null);
+  const handledFilterFocusTokenRef = useRef<number | null>(null);
+  const searchBlurTimeoutRef = useRef<number | null>(null);
   const startY = useRef(0);
   const currentY = useRef(0);
   const skipSelectedCitySyncOnMount = useRef(true);
   const hasSliderFilters = useMemo(() => SLIDERS.some((slider) => enabled[slider.key]), [enabled]);
-  const hasPriceFilter = price != null;
-  const areaDiscoveryMode = showUnratedByTypeOnly || searchAreaMode;
-  const forceAllVenuesInArea = areaDiscoveryMode;
-  const effectiveHasSliderFilters = hasSliderFilters && !forceAllVenuesInArea;
-  const includeUnratedVenues = forceAllVenuesInArea || (!hasSliderFilters && !hasPriceFilter);
+  const searchFitQueryRef = useRef<string>("");
+  const autoSelectedSearchQueryRef = useRef<string>("");
+  const searchHistoryBucket = useMemo(() => {
+    if (user?.id) {
+      return `user:${user.id}`;
+    }
+    return "guest";
+  }, [user?.id]);
+
+  const recentVenueIds = useMemo(() => {
+    if (typeof window === "undefined") {
+      return [] as string[];
+    }
+    try {
+      const raw = window.localStorage.getItem(RECENT_VENUES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed)) return [] as string[];
+      return parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0).slice(0, 12);
+    } catch {
+      return [] as string[];
+    }
+  }, [pubs.length, recentVenuesVersion]);
+
+  const recentVenueItems = useMemo(() => {
+    const byId = new Map(pubs.map((venue) => [venue.id, venue]));
+    return recentVenueIds
+      .map((venueId) => byId.get(venueId))
+      .filter((venue): venue is Pub => Boolean(venue))
+      .slice(0, 6);
+  }, [pubs, recentVenueIds]);
+
+  const dropdownQuery = query.trim().toLowerCase();
+  const filteredHistoryItems = useMemo(() => {
+    if (!dropdownQuery) return searchHistory.slice(0, 6);
+    return searchHistory.filter((item) => item.toLowerCase().includes(dropdownQuery)).slice(0, 6);
+  }, [dropdownQuery, searchHistory]);
+
+  const filteredRecentVenueItems = useMemo(() => {
+    if (!dropdownQuery) return recentVenueItems;
+    return recentVenueItems.filter((venue) => {
+      const haystack = `${venue.name} ${venue.city} ${venue.area} ${venue.address ?? ""}`.toLowerCase();
+      return haystack.includes(dropdownQuery);
+    });
+  }, [dropdownQuery, recentVenueItems]);
+
+  const showSearchDropdown = searchFocused && (filteredHistoryItems.length > 0 || filteredRecentVenueItems.length > 0);
+  const areaDiscoveryMode = searchAreaMode;
+  const effectiveHasSliderFilters = hasSliderFilters;
+  // Eye toggle is the only control that decides whether unrated/external places are included.
+  const includeUnratedVenues = showUnratedByTypeOnly;
   const effectiveQuery = areaDiscoveryMode ? "" : query;
   const effectiveDebouncedQuery = areaDiscoveryMode ? "" : debouncedQuery;
+  const searchNeedsExternal = effectiveDebouncedQuery.length >= 3;
   const hasSearchQuery = effectiveQuery.trim().length > 0;
   const radiusKm = radiusValueToKm(searchRadius);
   const effectiveRadiusKm = searchAreaRadiusKm ?? radiusKm;
@@ -315,6 +376,62 @@ export function ExploreScreen() {
     if (typeof window === "undefined") {
       return;
     }
+    try {
+      const raw = window.localStorage.getItem(EXPLORE_SEARCH_HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const bucket = parsed?.[searchHistoryBucket];
+      if (!Array.isArray(bucket)) {
+        setSearchHistory([]);
+        return;
+      }
+      const next = bucket.filter((item: unknown): item is string => typeof item === "string" && item.trim().length > 0);
+      setSearchHistory(next.slice(0, 12));
+    } catch {
+      setSearchHistory([]);
+    }
+  }, [searchHistoryBucket]);
+
+  const persistSearchHistory = useCallback((nextItems: string[]) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(EXPLORE_SEARCH_HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed[searchHistoryBucket] = nextItems.slice(0, 12);
+      window.localStorage.setItem(EXPLORE_SEARCH_HISTORY_KEY, JSON.stringify(parsed));
+    } catch {
+      // ignore persistence errors
+    }
+  }, [searchHistoryBucket]);
+
+  const addSearchHistoryItem = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setSearchHistory((prev) => {
+      const deduped = [trimmed, ...prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, 12);
+      persistSearchHistory(deduped);
+      return deduped;
+    });
+  }, [persistSearchHistory]);
+
+  const removeSearchHistoryItem = useCallback((value: string) => {
+    setSearchHistory((prev) => {
+      const next = prev.filter((item) => item !== value);
+      persistSearchHistory(next);
+      return next;
+    });
+  }, [persistSearchHistory]);
+
+  const clearSearchHistory = useCallback(() => {
+    setSearchHistory([]);
+    persistSearchHistory([]);
+  }, [persistSearchHistory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
 
     const centerToPersist = lastMapCenter ?? searchCenter;
     const payload: PersistedExploreMapState = {
@@ -328,6 +445,10 @@ export function ExploreScreen() {
     };
     window.sessionStorage.setItem(EXPLORE_MAP_STATE_KEY, JSON.stringify(payload));
   }, [lastMapCenter, mapBounds, mapZoom, query, searchAreaMode, searchAreaRadiusKm, searchCenter, selected, showUnratedByTypeOnly]);
+
+  useEffect(() => {
+    setHeaderAvatarFailed(false);
+  }, [user?.profilePhoto]);
 
   useEffect(() => {
     if (user) {
@@ -383,22 +504,23 @@ export function ExploreScreen() {
   }, [enabled, margin, marginEnabled, query, searchRadius, selectedArea, selectedCity, values]);
 
   useEffect(() => {
-    if (effectiveDebouncedQuery.length >= 3) {
-      setExternalLoading(false);
-      return;
-    }
-
-    if (areaDiscoveryMode) {
-      return;
-    }
-
-    if (!includeUnratedVenues && effectiveHasSliderFilters && effectiveDebouncedQuery.length < 3) {
+    // Keep external pools while searching so query can always discover unrated venues.
+    if (!includeUnratedVenues && !searchNeedsExternal) {
       setExternalPubs([]);
       setQueryBoostPubs([]);
       setExternalLookup(new Map());
       setExternalLoading(false);
       setExternalPoolStale(false);
       setQueryBoostLoading(false);
+      return;
+    }
+
+    if (searchNeedsExternal) {
+      setExternalLoading(false);
+      return;
+    }
+
+    if (areaDiscoveryMode) {
       return;
     }
 
@@ -446,10 +568,10 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, effectiveDebouncedQuery.length, effectiveHasSliderFilters, includeUnratedVenues, pubs, selectedCity, selectedCountry]);
+  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
 
   useEffect(() => {
-    if (!areaDiscoveryMode) {
+    if (!areaDiscoveryMode || !includeUnratedVenues) {
       setExternalPoolStale(false);
       return;
     }
@@ -494,7 +616,7 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchBounds, activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, pubs, selectedCity, selectedCountry]);
+  }, [activeSearchBounds, activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, includeUnratedVenues, pubs, selectedCity, selectedCountry]);
 
   useEffect(() => {
     if (areaDiscoveryMode) {
@@ -504,9 +626,12 @@ export function ExploreScreen() {
       return;
     }
 
-    if (effectiveDebouncedQuery.length < 3) {
+    if (!searchNeedsExternal) {
       setQueryBoostLoading(false);
       setQuerySearchScope("radius");
+      if (!includeUnratedVenues) {
+        setQueryBoostPubs([]);
+      }
       return;
     }
 
@@ -573,29 +698,21 @@ export function ExploreScreen() {
       cancelled = true;
       controller.abort();
     };
-  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, effectiveDebouncedQuery, externalPubs, pubs, selectedCity, selectedCountry]);
+  }, [activeSearchCenter, activeSearchRadiusKm, areaDiscoveryMode, effectiveDebouncedQuery, externalPubs, includeUnratedVenues, pubs, searchNeedsExternal, selectedCity, selectedCountry]);
 
   const filtered = useMemo(() => {
     const activeFilters = {
       query: effectiveQuery,
       values,
-      enabled: forceAllVenuesInArea
-        ? {
-            modern: false,
-            lively: false,
-            premium: false,
-            touristy: false,
-            spacious: false,
-          }
-        : enabled,
+      enabled,
       margin,
-      marginEnabled: forceAllVenuesInArea ? false : marginEnabled,
+      marginEnabled,
       selectedCity,
-      selectedArea: forceAllVenuesInArea ? "All areas" : selectedArea,
+      selectedArea,
       searchRadius,
-      searchRadiusKmOverride: forceAllVenuesInArea ? Number.POSITIVE_INFINITY : activeSearchRadiusKm,
+      searchRadiusKmOverride: activeSearchRadiusKm,
       venueTypes,
-      price: forceAllVenuesInArea ? null : price,
+      price,
       showTouristHeavyBars,
       center: activeSearchCenter,
     };
@@ -627,6 +744,7 @@ export function ExploreScreen() {
     const allExternalPubs = removeExternalDuplicates([...externalPubs, ...queryBoostPubs], pubs);
 
     if (hasSearchQuery) {
+      // Search always includes unrated/external venues, regardless of eye toggle.
       const combined = [...pubs, ...allExternalPubs];
       const unique = new Map<string, Pub>();
 
@@ -651,9 +769,20 @@ export function ExploreScreen() {
         };
       }));
 
-      if (effectiveHasSliderFilters) {
-        searched.sort((a, b) => b.match - a.match);
-      }
+      searched.sort((a, b) => {
+        const nameIntent = getSearchNameIntentScore(b, effectiveQuery) - getSearchNameIntentScore(a, effectiveQuery);
+        if (Math.abs(nameIntent) > 0.0001) return nameIntent;
+
+        const priority = getSearchPriority(b, effectiveQuery) - getSearchPriority(a, effectiveQuery);
+        if (priority !== 0) return priority;
+        const rel = getSearchRelevance(b, effectiveQuery) - getSearchRelevance(a, effectiveQuery);
+        if (Math.abs(rel) > 0.0001) return rel;
+        if (effectiveHasSliderFilters) {
+          const matchDiff = b.match - a.match;
+          if (matchDiff !== 0) return matchDiff;
+        }
+        return b.ratings - a.ratings;
+      });
 
       return searched;
     }
@@ -678,7 +807,66 @@ export function ExploreScreen() {
     }
 
     return filteredPubs;
-  }, [activeSearchCenter, activeSearchRadiusKm, effectiveHasSliderFilters, effectiveQuery, enabled, externalPubs, forceAllVenuesInArea, hasSearchQuery, includeUnratedVenues, margin, marginEnabled, price, pubs, queryBoostPubs, searchRadius, selectedArea, selectedCity, showTouristHeavyBars, values, venueTypes]);
+  }, [activeSearchCenter, activeSearchRadiusKm, effectiveHasSliderFilters, effectiveQuery, enabled, externalPubs, hasSearchQuery, includeUnratedVenues, margin, marginEnabled, price, pubs, queryBoostPubs, searchRadius, selectedArea, selectedCity, showTouristHeavyBars, values, venueTypes]);
+
+  useEffect(() => {
+    const q = debouncedQuery.trim();
+    if (!q) {
+      searchFitQueryRef.current = "";
+      return;
+    }
+
+    // Trigger fit only when a new query is performed. Do not fight user's manual map movement.
+    if (searchFitQueryRef.current === q) {
+      return;
+    }
+
+    if (filtered.length <= 1) {
+      searchFitQueryRef.current = q;
+      return;
+    }
+
+    // Keep framing relevant without over-zooming out on noisy/global result sets.
+    const topRelevant = filtered.slice(0, Math.min(10, filtered.length));
+    setSearchFitPubs(topRelevant);
+    setSearchFitToken((token) => token + 1);
+    searchFitQueryRef.current = q;
+  }, [debouncedQuery, filtered]);
+
+  useEffect(() => {
+    if (view !== "map") {
+      return;
+    }
+
+    const q = debouncedQuery.trim().toLowerCase();
+    if (!q) {
+      autoSelectedSearchQueryRef.current = "";
+      return;
+    }
+
+    if (autoSelectedSearchQueryRef.current === q) {
+      return;
+    }
+
+    const topMatch = filtered[0];
+    if (!topMatch) {
+      setSelected(undefined);
+      autoSelectedSearchQueryRef.current = q;
+      return;
+    }
+
+    setManualMapDeselected(false);
+    setSelected(topMatch.id);
+    setSelectionFocusToken((token) => token + 1);
+    autoSelectedSearchQueryRef.current = q;
+  }, [debouncedQuery, filtered, view]);
+
+  useEffect(() => {
+    if (view !== "map" || !hasSearchQuery || !selected) {
+      return;
+    }
+    setSelectionFocusToken((token) => token + 1);
+  }, [hasSearchQuery, selected, view]);
 
   useEffect(() => {
     const mapVisiblePool = !mapBounds
@@ -752,6 +940,36 @@ export function ExploreScreen() {
   }, [filtered, hasSearchQuery, mapBounds]);
   const selectedDrawerPub = pubsInCurrentMapView.find((p) => p.id === selected);
   const selectedPub = view === "map" ? selectedDrawerPub : filtered.find((p) => p.id === selected);
+  const routeState = (location.state as {
+    focusBestMatchFromFilter?: boolean;
+    focusToken?: number;
+  } | null) ?? null;
+
+  useEffect(() => {
+    const shouldFocusBest = Boolean(routeState?.focusBestMatchFromFilter);
+    const focusToken = routeState?.focusToken ?? null;
+
+    if (!shouldFocusBest || focusToken == null) {
+      return;
+    }
+    if (handledFilterFocusTokenRef.current === focusToken) {
+      return;
+    }
+    if (!effectiveHasSliderFilters || filtered.length === 0) {
+      return;
+    }
+
+    const bestMatch = filtered[0];
+    if (!bestMatch) {
+      return;
+    }
+
+    setSelected(bestMatch.id);
+    setManualMapDeselected(false);
+    setSelectionFocusToken((token) => token + 1);
+    handledFilterFocusTokenRef.current = focusToken;
+    navigate(".", { replace: true, state: null });
+  }, [effectiveHasSliderFilters, filtered, navigate, routeState]);
 
   useEffect(() => {
     displayMapCountRef.current = displayMapCount;
@@ -854,7 +1072,6 @@ export function ExploreScreen() {
 
   const handleLocate = () => {
     setLocated(true);
-    setShowUnratedByTypeOnly(false);
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -864,6 +1081,7 @@ export function ExploreScreen() {
           setSearchAreaRadiusKm(null);
           setSearchAreaMode(false);
           setLastMapCenter(nextLocation);
+          setLocateFocusToken((token) => token + 1);
           setTimeout(() => setLocated(false), 2500);
         },
         () => {
@@ -877,6 +1095,7 @@ export function ExploreScreen() {
   };
 
   const hasEnabledSliders = effectiveHasSliderFilters;
+  const showTopFilterIndicators = hasSliderFilters;
   const radiusLabel = Number.isFinite(activeSearchRadiusKm)
     ? formatDistance(activeSearchRadiusKm < 10 ? Number(activeSearchRadiusKm.toFixed(1)) : Math.round(activeSearchRadiusKm), distanceUnit, activeSearchRadiusKm < 10 ? 1 : 0)
     : "no radius limit";
@@ -953,6 +1172,7 @@ export function ExploreScreen() {
   };
 
   const openPlaceDetails = useCallback((pub: Pub) => {
+    addSearchHistoryItem(pub.name);
     if (pub.isExternalCandidate) {
       const source = pub.sourcePlaceId ? externalLookup.get(pub.sourcePlaceId) : undefined;
       navigate(`/detail/${pub.id}`, {
@@ -978,10 +1198,12 @@ export function ExploreScreen() {
     }
 
     navigate(`/detail/${pub.id}`);
-  }, [externalLookup, navigate, selectedCountry]);
+  }, [addSearchHistoryItem, externalLookup, navigate, selectedCountry]);
 
-  const openPlaceDetailsFromMapResult = useCallback((pubId: string) => {
-    const pub = pubsInCurrentMapView.find((item) => item.id === pubId) ?? filtered.find((item) => item.id === pubId);
+  const openPlaceDetailsFromMapResult = useCallback((pubId: string, clickedPub?: Pub) => {
+    const pub = clickedPub
+      ?? pubsInCurrentMapView.find((item) => item.id === pubId)
+      ?? filtered.find((item) => item.id === pubId);
     if (!pub) {
       return;
     }
@@ -1008,6 +1230,54 @@ export function ExploreScreen() {
     openPlaceDetails(pub);
   }, [filtered, openPlaceDetails]);
 
+  const handleSearchFocus = useCallback(() => {
+    if (searchBlurTimeoutRef.current) {
+      window.clearTimeout(searchBlurTimeoutRef.current);
+      searchBlurTimeoutRef.current = null;
+    }
+    setSearchFocused(true);
+  }, []);
+
+  const handleSearchBlur = useCallback(() => {
+    if (searchBlurTimeoutRef.current) {
+      window.clearTimeout(searchBlurTimeoutRef.current);
+    }
+    searchBlurTimeoutRef.current = window.setTimeout(() => {
+      setSearchFocused(false);
+      searchBlurTimeoutRef.current = null;
+    }, 140);
+  }, []);
+
+  const applyHistoryQuery = useCallback((value: string) => {
+    setQuery(value);
+    addSearchHistoryItem(value);
+    setSearchFocused(false);
+  }, [addSearchHistoryItem]);
+
+  const openRecentVenueFromDropdown = useCallback((pub: Pub) => {
+    setQuery(pub.name);
+    addSearchHistoryItem(pub.name);
+    setSelected(pub.id);
+    setManualMapDeselected(false);
+    setSelectionFocusToken((token) => token + 1);
+    setSearchFocused(false);
+    openPlaceDetails(pub);
+  }, [addSearchHistoryItem, openPlaceDetails]);
+
+  const clearRecentVenues = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(RECENT_VENUES_KEY);
+    setRecentVenuesVersion((version) => version + 1);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchBlurTimeoutRef.current) {
+        window.clearTimeout(searchBlurTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Heights: BottomNav = 60px, bottom sheet max = 35%
   // Floating buttons sit 12px above sheet top at max expansion
   // bottom = 35% + 60px (nav) + 12px gap
@@ -1026,6 +1296,8 @@ export function ExploreScreen() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
               placeholder="Search places, areas, or tags…"
               className="w-full pl-9 pr-16 py-2 rounded-full bg-white border border-gray-200 shadow-sm text-[13px] outline-none focus:border-gray-300"
             />
@@ -1044,6 +1316,80 @@ export function ExploreScreen() {
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-gray-600" />
             </button>
+            {showSearchDropdown ? (
+              <div className="absolute z-40 left-0 right-0 mt-2 rounded-2xl border border-gray-200 bg-white shadow-[0_12px_28px_rgba(0,0,0,0.12)] overflow-hidden">
+                <div className="max-h-[290px] overflow-y-auto">
+                  {filteredHistoryItems.length > 0 ? (
+                    <div className="px-3 pt-2 pb-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[11px] text-gray-400 uppercase tracking-wide">Recent searches</div>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={clearSearchHistory}
+                          className="text-[11px] text-gray-500 hover:text-gray-700"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="space-y-1 pb-1">
+                        {filteredHistoryItems.map((item) => (
+                          <div key={item} className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => applyHistoryQuery(item)}
+                              className="flex-1 text-left px-2.5 py-2 rounded-xl text-[12px] text-gray-700 hover:bg-gray-50"
+                            >
+                              {item}
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => removeSearchHistoryItem(item)}
+                              className="h-7 w-7 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex items-center justify-center"
+                              aria-label={`Remove ${item} from history`}
+                            >
+                              <span className="text-[11px] leading-none">×</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {filteredRecentVenueItems.length > 0 ? (
+                    <div className="px-3 pt-1 pb-2 border-t border-gray-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-[11px] text-gray-400 uppercase tracking-wide">Recently viewed venues</div>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={clearRecentVenues}
+                          className="text-[11px] text-gray-500 hover:text-gray-700"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="space-y-1">
+                        {filteredRecentVenueItems.map((venue) => (
+                          <button
+                            key={venue.id}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => openRecentVenueFromDropdown(venue)}
+                            className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-gray-50"
+                          >
+                            <div className="text-[12px] text-gray-800 truncate">{venue.name}</div>
+                            <div className="text-[11px] text-gray-500 truncate">{venue.city}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* User button */}
@@ -1056,7 +1402,16 @@ export function ExploreScreen() {
                 className="w-full h-full flex items-center justify-center text-white text-[11px]"
                 style={{ background: `linear-gradient(135deg, ${user.gradientFrom}, ${user.gradientTo})` }}
               >
-                {user.emoji}
+                {user.profilePhoto && !headerAvatarFailed ? (
+                  <img
+                    src={user.profilePhoto}
+                    alt={user.username}
+                    className="w-full h-full object-cover"
+                    onError={() => setHeaderAvatarFailed(true)}
+                  />
+                ) : (
+                  user.emoji
+                )}
               </div>
             ) : (
               <User className="w-4 h-4 text-gray-700" />
@@ -1065,7 +1420,7 @@ export function ExploreScreen() {
         </div>
 
         {/* Active filter strip — tappable */}
-        {hasEnabledSliders && (
+        {showTopFilterIndicators && (
           <button
             onClick={() => navigate("/filter")}
             className="w-full mt-3 pt-3 border-t border-gray-200/70 px-1 text-left"
@@ -1117,6 +1472,9 @@ export function ExploreScreen() {
               mapCenter={lastMapCenter ?? searchCenter}
               mapZoom={mapZoom}
               selectionFocusToken={selectionFocusToken}
+              locateFocusToken={locateFocusToken}
+              searchFitToken={searchFitToken}
+              searchFitPubs={searchFitPubs}
               focusYRatio={0.34}
               bottomInsetPx={mapBottomInsetPx}
               onMapMoveEnd={handleMapMoveEnd}
@@ -1161,13 +1519,7 @@ export function ExploreScreen() {
               <button
                 onClick={() => {
                   setShowUnratedByTypeOnly((current) => {
-                    const next = !current;
-                    if (next) {
-                      setSearchAreaMode(true);
-                    } else {
-                      setSearchAreaMode(false);
-                    }
-                    return next;
+                    return !current;
                   });
                 }}
                 className={`w-10 h-10 rounded-full shadow-md border flex items-center justify-center transition-all duration-200 ${
@@ -1244,7 +1596,7 @@ export function ExploreScreen() {
                 {selectedDrawerPub && (
                   <PubCard
                     pub={selectedDrawerPub}
-                    onClick={() => openPlaceDetailsFromMapResult(selectedDrawerPub.id)}
+                    onClick={() => openPlaceDetailsFromMapResult(selectedDrawerPub.id, selectedDrawerPub)}
                     selected
                     showMatchPill={hasEnabledSliders}
                   />
@@ -1255,7 +1607,7 @@ export function ExploreScreen() {
                     <PubCard
                       key={p.id}
                       pub={p}
-                      onClick={() => openPlaceDetailsFromMapResult(p.id)}
+                      onClick={() => openPlaceDetailsFromMapResult(p.id, p)}
                       compact
                       showMatchPill={hasEnabledSliders}
                     />

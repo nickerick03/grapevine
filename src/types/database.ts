@@ -1,5 +1,5 @@
 import type { PlaceRatingRecord, PlaceRecord, PlaceVibeSummary, SavedPlaceRecord } from "./place";
-import type { BugReportRecord } from "./admin";
+import type { BugReportRecord, UserProfileReportStatus } from "./admin";
 import type { LegalDocumentRecord } from "@/lib/services/legal";
 
 export interface ProfileRecord {
@@ -33,7 +33,22 @@ export interface PlaceRatingNoteFlagRecord {
   user_id: string;
   reason: "incorrect" | "false" | "inappropriate" | "other";
   details: string | null;
+  report_count: number;
   created_at: string;
+}
+
+export interface UserProfileReportRecord {
+  id: string;
+  reported_user_id: string;
+  reporter_id: string;
+  reason: "harassment" | "spam" | "impersonation" | "inappropriate" | "other" | null;
+  message: string | null;
+  status: UserProfileReportStatus;
+  admin_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface CupPlacementRecord {
@@ -115,15 +130,21 @@ export interface Database {
       };
       place_rating_note_flags: {
         Row: PlaceRatingNoteFlagRecord;
-        Insert: Partial<Pick<PlaceRatingNoteFlagRecord, "id" | "details">> &
+        Insert: Partial<Pick<PlaceRatingNoteFlagRecord, "id" | "details" | "report_count">> &
           Pick<PlaceRatingNoteFlagRecord, "rating_id" | "user_id" | "reason">;
-        Update: Partial<Pick<PlaceRatingNoteFlagRecord, "reason" | "details">>;
+        Update: Partial<Pick<PlaceRatingNoteFlagRecord, "reason" | "details" | "report_count" | "created_at">>;
       };
       bug_reports: {
         Row: BugReportRecord;
         Insert: Partial<Pick<BugReportRecord, "id" | "page_route" | "screenshot_url" | "status" | "admin_note" | "resolved_at" | "resolved_by" | "updated_at" | "created_at">>
           & Pick<BugReportRecord, "reporter_id" | "title" | "description">;
         Update: Partial<Omit<BugReportRecord, "id" | "reporter_id" | "created_at">>;
+      };
+      user_profile_reports: {
+        Row: UserProfileReportRecord;
+        Insert: Partial<Pick<UserProfileReportRecord, "id" | "reason" | "message" | "status" | "admin_note" | "reviewed_at" | "reviewed_by" | "created_at" | "updated_at">>
+          & Pick<UserProfileReportRecord, "reported_user_id" | "reporter_id">;
+        Update: Partial<Omit<UserProfileReportRecord, "id" | "reported_user_id" | "reporter_id" | "created_at">>;
       };
       legal_documents: {
         Row: LegalDocumentRecord;

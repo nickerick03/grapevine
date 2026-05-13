@@ -4,6 +4,7 @@ import { generatePlaceChips } from "@/lib/chips";
 import { buildEmptySummary } from "@/lib/place-summary";
 import { getAllPlaceSummaries, getPlaces } from "@/lib/services/places";
 import { generatePlaceSummary } from "@/lib/summary";
+import { supabase } from "@/lib/supabase/client";
 import type { PlaceRecord, PlaceVibeSummary } from "@/types/place";
 
 import { type Pub } from "../components/vibe";
@@ -128,6 +129,41 @@ export function PlacesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRefresh = () => {
+      // Coalesce bursty updates (e.g. rating + place metadata update) into one reload.
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        void refresh();
+      }, 180);
+    };
+
+    const channel = supabase
+      .channel("places-live-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "place_ratings" },
+        scheduleRefresh,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "places" },
+        scheduleRefresh,
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      void supabase.removeChannel(channel);
+    };
   }, [refresh]);
 
   const value = useMemo(

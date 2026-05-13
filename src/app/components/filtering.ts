@@ -24,6 +24,8 @@ function normalizeText(value: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -66,27 +68,98 @@ function matchesSearch(pub: Pub, query: string): boolean {
     return true;
   }
 
-  const q = normalizeText(query);
-  const name = normalizeText(pub.name);
-  const city = normalizeText(pub.city);
-  const area = normalizeText(pub.area);
-  const summary = normalizeText(pub.summary);
-  const address = normalizeText(pub.address ?? "");
-  const category = normalizeText(pub.category ?? "");
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) {
+    return true;
+  }
 
-  return (
-    name.includes(q) ||
-    city.includes(q) ||
-    area.includes(q) ||
-    summary.includes(q) ||
-    address.includes(q) ||
-    category.includes(q) ||
-    pub.chips.some((chip) => normalizeText(chip).includes(q))
-  );
+  const fields = [
+    normalizeText(pub.name),
+    normalizeText(pub.city),
+    normalizeText(pub.area ?? ""),
+    normalizeText(pub.summary),
+    normalizeText(pub.address ?? ""),
+    normalizeText(pub.category ?? ""),
+    ...pub.chips.map((chip) => normalizeText(chip)),
+  ];
+
+  // Fast exact/partial path: never block obvious hits.
+  if (fields.some((field) => field.includes(normalizedQuery))) {
+    return true;
+  }
+
+  const score = searchMatchScore(pub, query);
+  const queryLen = normalizedQuery.length;
+
+  // Keep fuzzy fallback strict so noisy results do not leak in.
+  const fuzzyThreshold = queryLen <= 2 ? 0.95 : queryLen <= 4 ? 0.86 : 0.8;
+  return score >= fuzzyThreshold;
 }
 
 export function matchesSearchQuery(pub: Pub, query: string): boolean {
   return matchesSearch(pub, query);
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const curr = new Array<number>(b.length + 1);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1, // insertion
+        prev[j] + 1, // deletion
+        prev[j - 1] + cost, // substitution
+      );
+    }
+    for (let j = 0; j <= b.length; j += 1) {
+      prev[j] = curr[j];
+    }
+  }
+
+  return prev[b.length];
+}
+
+function normalizedSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const distance = levenshteinDistance(a, b);
+  return Math.max(0, 1 - distance / Math.max(a.length, b.length));
+}
+
+function fuzzyBestScore(query: string, haystack: string): number {
+  if (!query || !haystack) return 0;
+  if (haystack === query) return 1;
+  if (haystack.startsWith(query)) return 0.98;
+  if (haystack.includes(query)) return 0.94;
+
+  const hayTokens = haystack.split(" ").filter(Boolean);
+  const queryTokens = query.split(" ").filter(Boolean);
+  let best = normalizedSimilarity(query, haystack) * 0.82;
+
+  for (const token of hayTokens) {
+    best = Math.max(best, normalizedSimilarity(query, token));
+  }
+
+  if (queryTokens.length > 1) {
+    for (const qToken of queryTokens) {
+      for (const token of hayTokens) {
+        best = Math.max(best, normalizedSimilarity(qToken, token) * 0.92);
+      }
+    }
+  }
+
+  return best;
+}
+
+function tokenize(value: string): string[] {
+  return normalizeText(value).split(" ").filter(Boolean);
 }
 
 function searchMatchScore(pub: Pub, query: string): number {
@@ -95,6 +168,9 @@ function searchMatchScore(pub: Pub, query: string): number {
   }
 
   const q = normalizeText(query);
+  if (!q) {
+    return 0;
+  }
   const name = normalizeText(pub.name);
   const city = normalizeText(pub.city);
   const area = normalizeText(pub.area);
@@ -110,7 +186,107 @@ function searchMatchScore(pub: Pub, query: string): number {
   if (category.includes(q)) return 0.75;
   if (summary.includes(q)) return 0.72;
 
-  return 0;
+  const strongFields = [name, address, city, area];
+  const lightFields = [category, summary];
+  const bestStrong = strongFields.reduce((best, field) => Math.max(best, fuzzyBestScore(q, field)), 0);
+  const bestLight = lightFields.reduce((best, field) => Math.max(best, fuzzyBestScore(q, field) * 0.82), 0);
+  const bestChip = pub.chips.reduce((best, chip) => Math.max(best, fuzzyBestScore(q, normalizeText(chip)) * 0.86), 0);
+
+  return Math.max(bestStrong, bestLight, bestChip);
+}
+
+export function getSearchRelevance(pub: Pub, query: string): number {
+  return searchMatchScore(pub, query);
+}
+
+export function getSearchPriority(pub: Pub, query: string): number {
+  const q = normalizeText(query);
+  if (!q) return 0;
+
+  const qTokens = tokenize(q);
+  const name = normalizeText(pub.name);
+  const city = normalizeText(pub.city);
+  const area = normalizeText(pub.area ?? "");
+  const address = normalizeText(pub.address ?? "");
+  const category = normalizeText(pub.category ?? "");
+
+  if (name === q) return 1000;
+  if (`${name} ${city}`.trim() === q) return 990;
+  if (name.startsWith(q)) return 970;
+  if (name.includes(q)) return 950;
+
+  const nameTokens = tokenize(name);
+  const cityTokens = tokenize(city);
+  const areaTokens = tokenize(area);
+  const addressTokens = tokenize(address);
+  const categoryTokens = tokenize(category);
+  const chipsTokens = pub.chips.flatMap((chip) => tokenize(chip));
+
+  const allNameTokensMatch = qTokens.length > 0 && qTokens.every((token) => nameTokens.includes(token));
+  if (allNameTokensMatch) return 940;
+
+  const allNameCityTokensMatch =
+    qTokens.length > 1 &&
+    qTokens.every(
+      (token) =>
+        nameTokens.includes(token) ||
+        cityTokens.includes(token) ||
+        areaTokens.includes(token),
+    );
+  if (allNameCityTokensMatch) return 920;
+
+  const pool = new Set([...nameTokens, ...cityTokens, ...areaTokens, ...addressTokens, ...categoryTokens, ...chipsTokens]);
+  const tokenHits = qTokens.filter((token) => pool.has(token)).length;
+  if (tokenHits > 0) {
+    return 760 + Math.round((tokenHits / qTokens.length) * 120);
+  }
+
+  return Math.round(searchMatchScore(pub, q) * 700);
+}
+
+export function getSearchNameIntentScore(pub: Pub, query: string): number {
+  const q = normalizeText(query);
+  if (!q) return 0;
+
+  const qTokens = tokenize(q);
+  const name = normalizeText(pub.name);
+  const nameTokens = tokenize(name);
+  const cityTokens = tokenize(pub.city);
+  const areaTokens = tokenize(pub.area ?? "");
+  const addressTokens = tokenize(pub.address ?? "");
+  const searchableLocalityTokens = new Set([...cityTokens, ...areaTokens, ...addressTokens]);
+
+  if (name === q) return 1;
+  if (name.startsWith(q)) return 0.98;
+  if (name.includes(q)) return 0.95;
+
+  if (qTokens.length === 0) return 0;
+
+  // Anchor token: longest query token (usually the venue word, not locality).
+  const anchorToken = [...qTokens].sort((a, b) => b.length - a.length)[0] ?? "";
+  if (anchorToken.length >= 4) {
+    const anchorInName = nameTokens.includes(anchorToken) || name.includes(anchorToken);
+    const anchorOnlyInLocality = !anchorInName && searchableLocalityTokens.has(anchorToken);
+    if (anchorInName) {
+      // Hard boost so venue-name intent beats rated-but-irrelevant places.
+      return 0.999;
+    }
+    // If anchor appears only as locality (e.g. city), keep score low.
+    if (anchorOnlyInLocality) {
+      return 0.05;
+    }
+  }
+
+  const nameHits = qTokens.filter((token) => nameTokens.includes(token)).length;
+  const localityHits = qTokens.filter((token) => cityTokens.includes(token) || areaTokens.includes(token)).length;
+
+  // Heavily favor name-token alignment. Locality only boosts after name intent exists.
+  const nameCoverage = nameHits / qTokens.length;
+  const localityCoverage = localityHits / qTokens.length;
+
+  if (nameCoverage <= 0) return 0;
+
+  return Math.min(1, nameCoverage * 0.88 + localityCoverage * 0.12);
 }
 
 function sliderMatchScore(pub: Pub, filters: ExploreFilterInput): number {

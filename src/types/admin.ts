@@ -1,4 +1,5 @@
 export type BugReportStatus = "open" | "triaged" | "in_progress" | "resolved" | "dismissed";
+export type UserProfileReportStatus = "open" | "reviewed" | "dismissed" | "resolved";
 
 export interface AdminDashboardTotals {
   total_places: number;
@@ -64,6 +65,12 @@ export interface AdminFlaggedNoteRow {
   reasons: string[] | null;
   latest_reason: string | null;
   latest_details: string | null;
+  classic_modern: number;
+  quiet_lively: number;
+  cheap_premium: number;
+  local_touristy: number;
+  cozy_spacious: number;
+  price_range: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,4 +132,27 @@ export interface BugReportInput {
   description: string;
   page_route?: string | null;
   screenshot_url?: string | null;
+}
+
+export interface UserProfileReportInput {
+  reason?: "harassment" | "spam" | "impersonation" | "inappropriate" | "other" | null;
+  message?: string | null;
+}
+
+export interface AdminUserProfileReportRow {
+  id: string;
+  reported_user_id: string;
+  reported_username: string;
+  reported_email: string | null;
+  reporter_id: string;
+  reporter_username: string;
+  reporter_email: string | null;
+  reason: string | null;
+  message: string | null;
+  status: UserProfileReportStatus;
+  admin_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
 }

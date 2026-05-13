@@ -45,6 +45,7 @@ const CITY_TO_COUNTRY: Record<string, string> = {
 };
 
 const EXPLORE_MAP_STATE_KEY = "grapevine.explore.mapState.v1";
+const LARGE_RADIUS_AUTOCENTER_KM = 10;
 
 type PersistedExploreMapState = {
   center?: { lat: number; lng: number };
@@ -174,6 +175,7 @@ export function FilterScreen() {
   const [snapValues,  setSnapValues]  = useState(values);
   const [snapEnabled, setSnapEnabled] = useState(enabled);
   const [snapMargin,  setSnapMargin]  = useState(margin);
+  const [snapPrice,   setSnapPrice]   = useState(price);
 
   const [count, setCount] = useState(0);
   const [displayCount, setDisplayCount] = useState(0);
@@ -385,6 +387,7 @@ export function FilterScreen() {
     setSnapValues({ ...values });
     setSnapEnabled({ ...enabled });
     setSnapMargin(margin);
+    setSnapPrice(price);
     setModalOpen(true);
   };
 
@@ -425,6 +428,12 @@ export function FilterScreen() {
   };
 
   const handleShowPlaces = () => {
+    const effectiveSearchRadiusKm = radiusValueToKm(searchRadius);
+    const shouldFocusBestMatch =
+      hasEnabledSliders &&
+      count > 0 &&
+      (searchRadius >= 100 || effectiveSearchRadiusKm >= LARGE_RADIUS_AUTOCENTER_KM);
+
     if (typeof window !== "undefined") {
       const venueTypeAreaMode = !hasEnabledSliders && price == null && venueTypes.length > 0;
       if (venueTypeAreaMode) {
@@ -449,7 +458,12 @@ export function FilterScreen() {
         }
       }
     }
-    navigate("/");
+    navigate("/", {
+      state: {
+        focusBestMatchFromFilter: shouldFocusBestMatch,
+        focusToken: Date.now(),
+      },
+    });
   };
 
   return (
@@ -494,7 +508,58 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 2. Trait sliders */}
+        {/* 2. Premade filters */}
+        <div>
+          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Premade filters</div>
+          <div className="relative">
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {customPresets.map((cp) => {
+                const Icon = getIconComponent(cp.iconName);
+                return (
+                  <div
+                    key={cp.id}
+                    onClick={() => applyCustomPreset(cp)}
+                    className="snap-start shrink-0 min-w-[150px] relative text-left px-3 py-2.5 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors group cursor-pointer select-none"
+                  >
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeCustomPreset(cp.id); }}
+                      className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center opacity-80 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
+                    >
+                      <PhX size={10} weight="bold" className="text-gray-500" />
+                    </button>
+                    <div className="text-gray-600">
+                      <Icon weight="duotone" size={22} />
+                    </div>
+                    <div className="text-[13px] mt-1 text-gray-800 pr-4 truncate">{cp.name}</div>
+                  </div>
+                );
+              })}
+
+              {PRESET_ITEMS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => applyPreset(p.key)}
+                  className="snap-start shrink-0 min-w-[150px] text-left px-3 py-2.5 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors"
+                >
+                  <div className="text-gray-600">{p.icon}</div>
+                  <div className="text-[13px] mt-1 text-gray-800">{p.label}</div>
+                </button>
+              ))}
+
+              <button
+                onClick={openModal}
+                className="snap-start shrink-0 min-w-[150px] text-left px-3 py-2.5 rounded-2xl bg-white border-2 border-dashed border-gray-300 hover:border-gray-400 active:bg-gray-50 transition-colors flex flex-col justify-center items-start gap-1"
+              >
+                <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center">
+                  <Plus size={16} weight="bold" className="text-gray-500" />
+                </div>
+                <div className="text-[13px] text-gray-500">Create custom</div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Trait sliders */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Trait sliders</div>
           <div className="space-y-2">
@@ -512,7 +577,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 3. Price range */}
+        {/* 4. Price range */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Price range</div>
           <div className="grid grid-cols-4 gap-2">
@@ -535,7 +600,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 4. Match tolerance */}
+        {/* 5. Match tolerance */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Match tolerance</div>
           <div className="grid grid-cols-4 gap-2">
@@ -558,59 +623,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 3. Good for */}
-        <div>
-          <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Good for…</div>
-          <div className="grid grid-cols-2 gap-2">
-            {PRESET_ITEMS.map((p) => (
-              <button
-                key={p.key}
-                onClick={() => applyPreset(p.key)}
-                className="text-left px-3 py-3 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors"
-              >
-                <div className="text-gray-600">{p.icon}</div>
-                <div className="text-[13px] mt-1 text-gray-800">{p.label}</div>
-              </button>
-            ))}
-
-            {/* Custom presets */}
-            {customPresets.map((cp) => {
-              const Icon = getIconComponent(cp.iconName);
-              return (
-                <div
-                  key={cp.id}
-                  onClick={() => applyCustomPreset(cp)}
-                  className="relative text-left px-3 py-3 rounded-2xl bg-white border border-gray-200 hover:border-gray-300 active:bg-gray-50 transition-colors group cursor-pointer select-none"
-                >
-                  {/* Delete button */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeCustomPreset(cp.id); }}
-                    className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                  >
-                    <PhX size={10} weight="bold" className="text-gray-500" />
-                  </button>
-                  <div className="text-gray-600">
-                    <Icon weight="duotone" size={22} />
-                  </div>
-                  <div className="text-[13px] mt-1 text-gray-800 pr-4 truncate">{cp.name}</div>
-                </div>
-              );
-            })}
-
-            {/* Create Custom button */}
-            <button
-              onClick={openModal}
-              className="text-left px-3 py-3 rounded-2xl bg-white border-2 border-dashed border-gray-300 hover:border-gray-400 active:bg-gray-50 transition-colors flex flex-col justify-center items-start gap-1"
-            >
-              <div className="w-7 h-7 rounded-xl bg-gray-100 flex items-center justify-center">
-                <Plus size={16} weight="bold" className="text-gray-500" />
-              </div>
-              <div className="text-[13px] text-gray-500">Create custom</div>
-            </button>
-          </div>
-        </div>
-
-        {/* 4. Find similar */}
+        {/* 6. Find similar */}
         <button
           onClick={() => navigate("/similar")}
           className="w-full py-3 rounded-2xl bg-white border border-gray-200 text-gray-800 text-[13px] flex items-center justify-center gap-2 hover:border-gray-300 transition-colors shadow-sm"
@@ -619,7 +632,7 @@ export function FilterScreen() {
           <ArrowRight size={15} className="text-gray-500" />
         </button>
 
-        {/* 5. Location — moved above range selector */}
+        {/* 7. Location — moved above range selector */}
         <div>
           <div className="text-[12px] text-gray-500 uppercase tracking-wide mb-2">Location</div>
           <div className="grid grid-cols-2 gap-2">
@@ -644,7 +657,7 @@ export function FilterScreen() {
           </div>
         </div>
 
-        {/* 6. Search area radius */}
+        {/* 8. Search area radius */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[12px] text-gray-500 uppercase tracking-wide">Search radius</div>
@@ -693,6 +706,7 @@ export function FilterScreen() {
         initialValues={snapValues}
         initialEnabled={snapEnabled}
         initialMargin={snapMargin}
+        initialPrice={snapPrice}
       />
     </div>
   );

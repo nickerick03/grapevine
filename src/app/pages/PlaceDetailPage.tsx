@@ -21,7 +21,7 @@ import {
   unsavePlace,
 } from "@/lib/services/places";
 import { generatePlaceSummary } from "@/lib/summary";
-import type { PlaceRatingRecord, PlaceRecord, PlaceVibeSummary, PlaceWithSummary } from "@/types/place";
+import { normalizeVisitContexts, type PlaceRatingRecord, type PlaceRecord, type PlaceVibeSummary, type PlaceWithSummary } from "@/types/place";
 
 export function PlaceDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -224,7 +224,12 @@ export function PlaceDetailPage() {
               <article key={rating.id} className="rounded-2xl bg-gray-50 p-3">
                 <div className="flex items-center justify-between text-[11px] text-gray-500">
                   <span>User {rating.user_id.slice(0, 8)}</span>
-                  <span>{rating.visit_context ?? "Visit time not set"}</span>
+                  <span>
+                    {(() => {
+                      const contexts = normalizeVisitContexts(rating.visit_contexts ?? rating.visit_context ?? null);
+                      return contexts.length > 0 ? contexts.join(" • ") : "Visit time not set";
+                    })()}
+                  </span>
                 </div>
                 <p className="mt-1 text-[13px] text-gray-700">{rating.note}</p>
               </article>
