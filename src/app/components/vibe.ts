@@ -10,9 +10,9 @@ export interface SliderDef {
 }
 
 export const SLIDERS: SliderDef[] = [
-  { key: "modern",   left: "Classic",  right: "Modern",  color: "#F59E0B", bg: "bg-amber-50",   track: "from-amber-200 to-amber-500" },
+  { key: "modern",   left: "Vintage",  right: "Modern",  color: "#F59E0B", bg: "bg-amber-50",   track: "from-amber-200 to-amber-500" },
   { key: "lively",   left: "Quiet",    right: "Lively",  color: "#EF4444", bg: "bg-red-50",     track: "from-red-200 to-red-500" },
-  { key: "premium",  left: "Indie",    right: "Mainstream", color: "#10B981", bg: "bg-emerald-50", track: "from-emerald-200 to-emerald-500" },
+  { key: "premium",  left: "Indie",    right: "Casual", color: "#10B981", bg: "bg-emerald-50", track: "from-emerald-200 to-emerald-500" },
   { key: "touristy", left: "Local",    right: "Touristy",color: "#3B82F6", bg: "bg-blue-50",    track: "from-blue-200 to-blue-500" },
   { key: "spacious", left: "Cozy",     right: "Spacious",color: "#8B5CF6", bg: "bg-purple-50",  track: "from-purple-200 to-purple-500" },
 ];

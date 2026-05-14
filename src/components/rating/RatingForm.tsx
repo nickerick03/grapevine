@@ -104,9 +104,15 @@ export function RatingForm({
         const rightActive = directionalValue > 0;
         const intensity = Math.abs(directionalValue);
         const percent = directionalToPercent(directionalValue);
+        const nudge = (direction: -1 | 1) => {
+          setValues((previous) => ({
+            ...previous,
+            [dimension.key]: Math.max(-10, Math.min(10, previous[dimension.key] + direction)),
+          }));
+        };
 
         return (
-          <label key={dimension.key} className="block rounded-2xl p-3" style={{ background: `${dimension.color}0D` }}>
+          <label key={dimension.key} className="block rounded-2xl px-2 py-3" style={{ background: `${dimension.color}0D` }}>
             <div className="mb-1 flex items-center justify-between">
               <span className="text-[13px] text-gray-800">{dimension.label}</span>
               <span className="text-[12px] text-gray-500">
@@ -116,17 +122,20 @@ export function RatingForm({
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <span
-                className="w-[5.8rem] text-right text-[10px] leading-tight whitespace-nowrap transition-colors"
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => nudge(-1)}
+                aria-label={`Move ${dimension.leftLabel} by 1`}
+                className="w-[4.1rem] sm:w-[4.9rem] text-right text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis transition-colors shrink-0 bg-transparent border-0 p-0 cursor-pointer"
                 style={{ color: leftActive ? dimension.color : "#6B7280" }}
               >
                 {leftActive ? <span className="mr-1 font-medium">{intensity}</span> : null}
                 {dimension.leftLabel}
-              </span>
+              </button>
 
-              <div className="relative flex-1 py-1">
-                <div className="relative h-4 rounded-full mx-2 bg-white/80">
+              <div className="relative flex-1 py-1 min-w-0 px-[10px]">
+                <div className="relative h-4 rounded-full bg-white/80">
                   <div
                     className="absolute inset-y-0 rounded-full"
                     style={{
@@ -162,17 +171,20 @@ export function RatingForm({
                       [dimension.key]: Number.parseInt(event.target.value, 10),
                     }))
                   }
-                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                  className="absolute inset-y-0 left-[10px] right-[10px] opacity-0 cursor-pointer"
                 />
               </div>
 
-              <span
-                className="w-[5.8rem] text-left text-[10px] leading-tight whitespace-nowrap transition-colors"
+              <button
+                type="button"
+                onClick={() => nudge(1)}
+                aria-label={`Move ${dimension.rightLabel} by 1`}
+                className="w-[4.1rem] sm:w-[4.9rem] text-left text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis transition-colors shrink-0 bg-transparent border-0 p-0 cursor-pointer"
                 style={{ color: rightActive ? dimension.color : "#6B7280" }}
               >
                 {dimension.rightLabel}
                 {rightActive ? <span className="ml-1 font-medium">{intensity}</span> : null}
-              </span>
+              </button>
             </div>
           </label>
         );

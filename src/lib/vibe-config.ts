@@ -26,8 +26,8 @@ export const VIBE_DIMENSIONS: VibeDimension[] = [
   {
     key: "classic_modern",
     dbAverageKey: "avg_classic_modern",
-    label: "Classic vs Modern",
-    leftLabel: "Classic",
+    label: "Vintage vs Modern",
+    leftLabel: "Vintage",
     rightLabel: "Modern",
     color: "#F59E0B",
     softBackground: "#FFFBEB",

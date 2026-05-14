@@ -18,7 +18,7 @@ export function VibeSliderBar({ label, leftLabel, rightLabel, value, color }: Vi
   const formattedIntensity = Number.isInteger(intensity) ? `${intensity}` : intensity.toFixed(1);
 
   return (
-    <div className="rounded-2xl p-3" style={{ background: `${color}0D` }}>
+    <div className="rounded-2xl px-2 py-3" style={{ background: `${color}0D` }}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <p className="text-[13px] text-gray-800">{label}</p>
         <p className="text-[12px] text-gray-500">
@@ -27,16 +27,16 @@ export function VibeSliderBar({ label, leftLabel, rightLabel, value, color }: Vi
             : `${normalizedDirectionalValue < 0 ? leftLabel : rightLabel} ${formattedIntensity}`}
         </p>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-0.5">
         <span
-          className="w-[5.8rem] text-right text-[10px] leading-tight whitespace-nowrap transition-colors"
+          className="w-[4.1rem] sm:w-[4.9rem] text-right text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis transition-colors shrink-0"
           style={{ color: leftActive ? color : "#6B7280" }}
         >
           {leftActive ? <span className="mr-1 font-medium">{formattedIntensity}</span> : null}
           {leftLabel}
         </span>
 
-        <div className="relative h-2 flex-1 rounded-full bg-white/80 overflow-hidden">
+        <div className="relative h-2 flex-1 min-w-0 rounded-full bg-white/80 overflow-hidden">
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gray-400/60" />
           <div
             className="absolute inset-y-0 rounded-full"
@@ -49,7 +49,7 @@ export function VibeSliderBar({ label, leftLabel, rightLabel, value, color }: Vi
         </div>
 
         <span
-          className="w-[5.8rem] text-left text-[10px] leading-tight whitespace-nowrap transition-colors"
+          className="w-[4.1rem] sm:w-[4.9rem] text-left text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis transition-colors shrink-0"
           style={{ color: rightActive ? color : "#6B7280" }}
         >
           {rightLabel}

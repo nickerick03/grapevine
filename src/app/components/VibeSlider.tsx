@@ -68,12 +68,32 @@ export function VibeSlider({
     : rightActive
       ? def.color
       : "#6B7280";
+  const canInteract = interactive && (enabled || !!onToggle);
+  const minValue = centeredScale ? -10 : 0;
+  const maxValue = centeredScale ? 10 : 100;
+
+  const nudgeToward = (direction: -1 | 1) => {
+    if (!canInteract) {
+      return;
+    }
+
+    if (!enabled && onToggle) {
+      onToggle(true);
+    }
+
+    const nextValue = Math.max(minValue, Math.min(maxValue, value + direction));
+    if (nextValue !== value) {
+      onChange?.(nextValue);
+    }
+  };
+
+  const labelButtonClass = "w-[4.1rem] sm:w-[4.9rem] text-[10px] leading-tight whitespace-nowrap overflow-hidden text-ellipsis transition-colors";
 
   return (
     <div
-      className={`${compact ? "" : "px-3 py-2.5"} rounded-2xl ${cardBackgroundClass} transition-colors`}
+      className={`${compact ? "" : "px-2 py-2.5"} rounded-2xl ${cardBackgroundClass} transition-colors`}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-0.5">
         {/* Color dot */}
         {!showNeutralTrack ? (
           toggleWithDot && onToggle ? (
@@ -91,8 +111,12 @@ export function VibeSlider({
 
         {/* Left label */}
         {!showNeutralTrack ? (
-          <span
-            className={`text-[10px] ${centeredScale ? "w-[5.7rem]" : "w-[4rem]"} text-right flex-none leading-tight whitespace-nowrap transition-colors`}
+          <button
+            type="button"
+            onClick={() => nudgeToward(-1)}
+            disabled={!canInteract}
+            aria-label={`Move ${def.left} by 1`}
+            className={`${labelButtonClass} text-right flex-none shrink-0 ${canInteract ? "cursor-pointer" : "cursor-default"} bg-transparent border-0 p-0`}
             style={{ color: centeredScale ? leftLabelColor : enabled ? "#6B7280" : "#9CA3AF" }}
           >
             {leftActive ? (
@@ -101,13 +125,13 @@ export function VibeSlider({
               </span>
             ) : null}
             {def.left}
-          </span>
+          </button>
         ) : null}
 
         {/* Slider track */}
-        <div className="relative flex-1 py-1">
+        <div className="relative flex-1 py-1 min-w-0 px-[10px]">
           <div
-            className="relative h-4 rounded-full mx-2"
+            className="relative h-4 rounded-full"
             style={{ background: showNeutralTrack ? "#E5E7EB" : enabled ? `${def.color}1a` : "#E5E7EB" }}
           >
             {/* Filled portion */}
@@ -175,7 +199,7 @@ export function VibeSlider({
               }}
               onChange={(e) => onChange?.(Number(e.target.value))}
               disabled={!enabled && !onToggle}
-              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+              className="absolute inset-y-0 left-[10px] right-[10px] opacity-0 cursor-pointer"
               style={{ pointerEvents: enabled || !!onToggle ? "auto" : "none" }}
             />
           )}
@@ -183,8 +207,12 @@ export function VibeSlider({
 
         {/* Right label */}
         {!showNeutralTrack ? (
-          <span
-            className={`text-[10px] ${centeredScale ? "w-[5.7rem]" : "w-[4rem]"} text-left flex-none leading-tight whitespace-nowrap transition-colors`}
+          <button
+            type="button"
+            onClick={() => nudgeToward(1)}
+            disabled={!canInteract}
+            aria-label={`Move ${def.right} by 1`}
+            className={`${labelButtonClass} text-left flex-none shrink-0 ${canInteract ? "cursor-pointer" : "cursor-default"} bg-transparent border-0 p-0`}
             style={{ color: centeredScale ? rightLabelColor : enabled ? "#6B7280" : "#9CA3AF" }}
           >
             {def.right}
@@ -193,7 +221,7 @@ export function VibeSlider({
                 {formatIntensity(directionalIntensity)}
               </span>
             ) : null}
-          </span>
+          </button>
         ) : null}
 
         {/* Toggle */}
